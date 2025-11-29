@@ -1,27 +1,23 @@
 import { createSVG, buildHierarchy, buildTree } from "./createTree.js";
 
-export function setupChangeNode(changeForm, BASE_URL) {
+export function setupChangeNode(changeForm, baseUrl) {
   changeForm.addEventListener("submit", async (e) => {
     e.preventDefault();
 
     const formData = new FormData(changeForm);
-    const nodeId = formData.get("node-for-change"); // se eu quiser garantir que o id vá sempre maiusculo,
+    const nodeId = formData.get("node-for-change");
     const action = formData.get("opcoes");          
-    const newValue = formData.get("new-value");     // então devo adicionar um ?.toUpperCase();
+    const newValue = formData.get("new-value");
 
     if (!nodeId) return alert("O ID do nó é obrigatório.");
 
     const payload = { id: nodeId };
 
-    if (action === "capacity-kw") {
+    // Harmonized variable names: using 'capacity' instead of 'capacity_kw'
+    if (action === "capacity-kw") { // keeping form value check as is (assuming HTML value)
       const value = Number(newValue);
       if (isNaN(value)) return alert("Capacidade deve ser um número.");
-      payload.capacity_kw = value;
-
-    // } else if (action === "current_load_kw") {
-    //   const value = Number(newValue);
-    //   if (isNaN(value)) return alert("Carga atual deve ser um número.");
-    //   payload.current_load_kw = value;
+      payload.capacity = value;
 
     } else if (action === "add-node") {
       payload.add_node = true;
@@ -41,7 +37,7 @@ export function setupChangeNode(changeForm, BASE_URL) {
     }
 
     try {
-      const response = await fetch(`${BASE_URL}/change-node`, {
+      const response = await fetch(`${baseUrl}/change-node`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

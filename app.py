@@ -6,29 +6,12 @@ import asyncio
 import json
 import uuid
 
-# importa todas as funções que serão consumidas do backend
-from backend.api.logical_backend_api import (
-    api_get_tree_snapshot,
-    api_add_node_with_routing,
-    api_remove_node,
-    api_change_parent_with_routing,
-    api_force_change_parent,
-    api_set_node_capacity,
-    api_set_device_average_load,
-    api_force_overload,
-)
-
 from backend.api.backend_facade import PowerGridBackend
 from backend.core.models import Node, Edge, NodeType, EdgeType
 
 # Initialize BackendFacade
 # This handles loading graph from files and setting up index/service
 backend = PowerGridBackend(nodes_path="backend/out/nodes", edges_path="backend/out/edges")
-
-# Expose internal components for compatibility with existing API calls
-graph = backend.graph
-index = backend.index
-service = backend.service
 
 # configuração do FastAPI
 app = FastAPI()
@@ -40,11 +23,11 @@ templates = Jinja2Templates(directory="templates")
 def sim_sobrecarga(id_no: str):
     """Simula uma sobrecarga em um nó."""
     # Simula sobrecarga de 20%
-    return api_force_overload(graph, index, service, id_no, 0.2)
+    return backend.force_overload(id_no, 0.2)
 
 def sim_falha_no(id_no: str):
     """Simula falha em um nó removendo-o do grafo."""
-    return api_remove_node(graph, index, service, id_no, remove_from_graph=True)
+    return backend.remove_node(id_no, remove_from_graph=True)
 
 def sim_pico_consumo(id_no: str):
     """Simula pico de consumo.
@@ -53,7 +36,7 @@ def sim_pico_consumo(id_no: str):
     vamos simular um pico forçando uma sobrecarga maior (50%).
     Isso deve disparar alertas de overload.
     """
-    return api_force_overload(graph, index, service, id_no, 0.5)
+    return backend.force_overload(id_no, 0.5)
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
@@ -68,7 +51,7 @@ def home(request: Request):
 @app.post("/tree")
 async def get_tree():
     """função que retorna a árvore completa inicial."""
-    arvore = api_get_tree_snapshot(graph, index, service)
+    arvore = backend.get_tree_snapshot()
     return JSONResponse(arvore)
 
 # rota para o WebSocket de simulação
@@ -129,18 +112,23 @@ async def change_node(data: dict):
 
     nova_arvore = None
 
-    if "capacity_kw" in data:
-        nova_arvore = api_set_node_capacity(graph, index, service, id_no, data["capacity_kw"])
+    # Harmonized variable names (capacity, current_load)
+    # Also support old ones for backward compatibility if needed, but we are refactoring frontend too.
 
-    # elif "current_load_kw" in data:
-    #     nova_arvore = alterar_carga_no(id_no, data["current_load_kw"])
+    if "capacity" in data:
+        nova_arvore = backend.set_node_capacity(id_no, data["capacity"])
+    elif "capacity_kw" in data: # Legacy support
+        nova_arvore = backend.set_node_capacity(id_no, data["capacity_kw"])
+
+    # elif "current_load" in data:
+    #     nova_arvore = alterar_carga_no(id_no, data["current_load"])
 
     elif data.get("add_node") is True:
         # Logic to add a new node connected to id_no (parent)
-        # We create a new CONSUMER_POINT by default
         new_node_id = str(uuid.uuid4())[:8]
+
         # We need a position. Let's take parent position and offset slightly.
-        parent_node = graph.get_node(id_no)
+        parent_node = backend.graph.get_node(id_no)
         pos_x = 0.0
         pos_y = 0.0
         if parent_node:
@@ -166,16 +154,16 @@ async def change_node(data: dict):
             length=10.0 # arbitrary
         )
 
-        nova_arvore = api_add_node_with_routing(graph, index, service, new_node, [new_edge])
+        nova_arvore = backend.add_node_with_routing(new_node, [new_edge])
 
     elif data.get("delete_node") is True:
-        nova_arvore = api_remove_node(graph, index, service, id_no)
+        nova_arvore = backend.remove_node(id_no)
 
     elif data.get("change_parent_routing") is True:
-        nova_arvore = api_change_parent_with_routing(graph, index, service, id_no)
+        nova_arvore = backend.change_parent_with_routing(id_no)
 
     elif "new_parent" in data:
-        nova_arvore = api_force_change_parent(graph, index, service, id_no, data["new_parent"])
+        nova_arvore = backend.force_change_parent(id_no, data["new_parent"])
 
     else:
         return JSONResponse({"error": "Nenhuma ação válida fornecida"}, status_code=400)
