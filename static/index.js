@@ -18,7 +18,7 @@ btnLoadTree.addEventListener("click", (e) => {
       return response.json();
     })
     .then((data) => {
-      const root = buildHierarchy(data);
+      const root = buildHierarchy(data.tree);
       buildTree(root, g);
     })
     .catch((err) => console.error("Erro ao carregar a árvore:", err));

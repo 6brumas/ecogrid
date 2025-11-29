@@ -43,6 +43,34 @@ export function createSVG(fromButton) {
 }
 
 export function buildHierarchy(flatData) {
+  // Check if we have multiple roots (nodes with null parent_id)
+  const roots = flatData.filter(d => d.parent_id === null);
+
+  if (roots.length > 1) {
+    // Create a virtual root
+    const virtualRoot = {
+      id: "virtual_root",
+      parent_id: null,
+      node_type: "default",
+      status: "NORMAL"
+    };
+
+    // Modify existing roots to point to virtual root
+    const modifiedData = flatData.map(d => {
+      if (d.parent_id === null) {
+        return { ...d, parent_id: "virtual_root" };
+      }
+      return d;
+    });
+
+    modifiedData.push(virtualRoot);
+
+    return d3
+      .stratify()
+      .id((d) => d.id)
+      .parentId((d) => d.parent_id)(modifiedData);
+  }
+
   return d3
     .stratify()
     .id((d) => d.id)
