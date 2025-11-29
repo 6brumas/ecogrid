@@ -4,25 +4,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import asyncio
 import json
+import uuid
 
-# importa todas as funções que serão consumidas do backend
-from backend.api.logical_backend_api import (
-    api_get_tree_snapshot,
-    api_add_node_with_routing,
-    api_remove_node,
-    api_change_parent_with_routing,
-    api_force_change_parent,
-    api_set_node_capacity,
-    api_set_device_average_load, 
-)
+from backend.api.backend_facade import PowerGridBackend
+from backend.core.models import Node, Edge, NodeType, EdgeType
 
-from backend.core.graph_core import PowerGridGraph
-from backend.logic.bplus_index import BPlusIndex
-from backend.logic.logical_graph_service import LogicalGraphService
-
-graph = PowerGridGraph()
-index = BPlusIndex()
-service = LogicalGraphService(index=index, graph=graph)
+# Initialize BackendFacade
+# This handles loading graph from files and setting up index/service
+backend = PowerGridBackend(nodes_path="backend/out/nodes", edges_path="backend/out/edges")
 
 # configuração do FastAPI
 app = FastAPI()
@@ -30,6 +19,24 @@ app = FastAPI()
 # configuração dos diretórios de arquivos estáticos e templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+def sim_sobrecarga(id_no: str):
+    """Simula uma sobrecarga em um nó."""
+    # Simula sobrecarga de 20%
+    return backend.force_overload(id_no, 0.2)
+
+def sim_falha_no(id_no: str):
+    """Simula falha em um nó removendo-o do grafo."""
+    return backend.remove_node(id_no, remove_from_graph=True)
+
+def sim_pico_consumo(id_no: str):
+    """Simula pico de consumo.
+
+    Como não temos acesso fácil aos devices para aumentar a carga real,
+    vamos simular um pico forçando uma sobrecarga maior (50%).
+    Isso deve disparar alertas de overload.
+    """
+    return backend.force_overload(id_no, 0.5)
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
@@ -44,7 +51,7 @@ def home(request: Request):
 @app.post("/tree")
 async def get_tree():
     """função que retorna a árvore completa inicial."""
-    arvore = api_get_tree_snapshot(graph, index, service)
+    arvore = backend.get_tree_snapshot()
     return JSONResponse(arvore)
 
 # rota para o WebSocket de simulação
@@ -105,23 +112,58 @@ async def change_node(data: dict):
 
     nova_arvore = None
 
-    if "capacity_kw" in data:
-        nova_arvore = api_set_node_capacity(id_no, data["capacity_kw"])
+    # Harmonized variable names (capacity, current_load)
+    # Also support old ones for backward compatibility if needed, but we are refactoring frontend too.
 
-    # elif "current_load_kw" in data:
-    #     nova_arvore = alterar_carga_no(id_no, data["current_load_kw"])
+    if "capacity" in data:
+        nova_arvore = backend.set_node_capacity(id_no, data["capacity"])
+    elif "capacity_kw" in data: # Legacy support
+        nova_arvore = backend.set_node_capacity(id_no, data["capacity_kw"])
+
+    # elif "current_load" in data:
+    #     nova_arvore = alterar_carga_no(id_no, data["current_load"])
 
     elif data.get("add_node") is True:
-        nova_arvore = api_add_node_with_routing(id_no) # o id enviado aqui é o do pai!!
+        # Logic to add a new node connected to id_no (parent)
+        new_node_id = str(uuid.uuid4())[:8]
+
+        # We need a position. Let's take parent position and offset slightly.
+        parent_node = backend.graph.get_node(id_no)
+        pos_x = 0.0
+        pos_y = 0.0
+        if parent_node:
+            pos_x = parent_node.position_x + 10 # arbitrary offset
+            pos_y = parent_node.position_y + 10
+
+        new_node = Node(
+            id=new_node_id,
+            node_type=NodeType.CONSUMER_POINT,
+            position_x=pos_x,
+            position_y=pos_y,
+            nominal_voltage=127.0, # default
+            capacity=50.0, # default
+            current_load=0.0
+        )
+
+        # Create edge connecting parent to new node
+        new_edge = Edge(
+            id=f"edge_{id_no}_{new_node_id}",
+            edge_type=EdgeType.LV_DISTRIBUTION_SEGMENT, # Assuming LV for consumer
+            from_node_id=id_no,
+            to_node_id=new_node_id,
+            length=10.0 # arbitrary
+        )
+
+        nova_arvore = backend.add_node_with_routing(new_node, [new_edge])
 
     elif data.get("delete_node") is True:
-        nova_arvore = api_remove_node(id_no)
+        nova_arvore = backend.remove_node(id_no)
 
     elif data.get("change_parent_routing") is True:
-        nova_arvore = api_change_parent_with_routing(id_no)
+        nova_arvore = backend.change_parent_with_routing(id_no)
 
     elif "new_parent" in data:
-        nova_arvore = api_force_change_parent(id_no, data["new_parent"])
+        nova_arvore = backend.force_change_parent(id_no, data["new_parent"])
 
     else:
         return JSONResponse({"error": "Nenhuma ação válida fornecida"}, status_code=400)
