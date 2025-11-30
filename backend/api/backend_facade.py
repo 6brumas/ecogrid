@@ -13,6 +13,7 @@ from physical.device_simulation import DeviceSimulationState, build_device_simul
 # Import modules for initialization
 from io_utils.loader import load_graph_from_files
 from logic.graph_initialization import build_logical_state
+from logic.capacity_analysis import initialize_capacities
 
 # Import existing functional API to delegate calls
 from api import logical_backend_api as api_impl
@@ -63,6 +64,9 @@ class PowerGridBackend:
         # 2. Constrói estado lógico (inclui hidratação via service.hydrate_from_physical)
         # build_logical_state já retorna (graph, index, service) populados.
         _, self.index, self.service = build_logical_state(self.graph)
+
+        # 2.5. Inicializa capacidades baseado na topologia
+        initialize_capacities(self.graph, self.index)
 
         # 3. Inicializa dispositivos
         self._init_default_devices()
