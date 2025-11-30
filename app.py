@@ -5,17 +5,12 @@ from fastapi.templating import Jinja2Templates
 import asyncio
 import json
 import uuid
-import sys
-import os
 
-# Garante que os módulos do backend possam ser importados da raiz
-sys.path.append(os.path.join(os.path.dirname(__file__), "backend"))
+from backend.api.backend_facade import PowerGridBackend
+from backend.core.models import Node, Edge, NodeType, EdgeType
 
-from api.backend_facade import PowerGridBackend
-from core.models import Node, Edge, NodeType, EdgeType
-
-# Inicializa o BackendFacade
-# Isso lida com o carregamento do grafo a partir de arquivos e configuração do índice/serviço
+# Initialize BackendFacade
+# This handles loading graph from files and setting up index/service
 backend = PowerGridBackend(nodes_path="backend/out/nodes", edges_path="backend/out/edges")
 
 # configuração do FastAPI
@@ -117,19 +112,27 @@ async def change_node(data: dict):
 
     nova_arvore = None
 
+    # Harmonized variable names (capacity, current_load)
+    # Also support old ones for backward compatibility if needed, but we are refactoring frontend too.
+
     if "capacity" in data:
         nova_arvore = backend.set_node_capacity(id_no, data["capacity"])
+    elif "capacity_kw" in data: # Legacy support
+        nova_arvore = backend.set_node_capacity(id_no, data["capacity_kw"])
+
+    # elif "current_load" in data:
+    #     nova_arvore = alterar_carga_no(id_no, data["current_load"])
 
     elif data.get("add_node") is True:
-        # Lógica para adicionar um novo nó conectado ao id_no (pai)
+        # Logic to add a new node connected to id_no (parent)
         new_node_id = str(uuid.uuid4())[:8]
 
-        # Precisamos de uma posição. Vamos pegar a posição do pai e deslocar um pouco.
+        # We need a position. Let's take parent position and offset slightly.
         parent_node = backend.graph.get_node(id_no)
         pos_x = 0.0
         pos_y = 0.0
         if parent_node:
-            pos_x = parent_node.position_x + 10 # deslocamento arbitrário
+            pos_x = parent_node.position_x + 10 # arbitrary offset
             pos_y = parent_node.position_y + 10
 
         new_node = Node(
@@ -137,18 +140,18 @@ async def change_node(data: dict):
             node_type=NodeType.CONSUMER_POINT,
             position_x=pos_x,
             position_y=pos_y,
-            nominal_voltage=127.0, # padrão
-            capacity=50.0, # padrão
+            nominal_voltage=127.0, # default
+            capacity=50.0, # default
             current_load=0.0
         )
 
-        # Cria aresta conectando pai ao novo nó
+        # Create edge connecting parent to new node
         new_edge = Edge(
             id=f"edge_{id_no}_{new_node_id}",
-            edge_type=EdgeType.LV_DISTRIBUTION_SEGMENT, # Assumindo baixa tensão para consumidor
+            edge_type=EdgeType.LV_DISTRIBUTION_SEGMENT, # Assuming LV for consumer
             from_node_id=id_no,
             to_node_id=new_node_id,
-            length=10.0 # arbitrário
+            length=10.0 # arbitrary
         )
 
         nova_arvore = backend.add_node_with_routing(new_node, [new_edge])

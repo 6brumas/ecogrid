@@ -13,7 +13,8 @@ export function setupChangeNode(changeForm, baseUrl) {
 
     const payload = { id: nodeId };
 
-    if (action === "capacity-kw") {
+    // Harmonized variable names: using 'capacity' instead of 'capacity_kw'
+    if (action === "capacity-kw") { // keeping form value check as is (assuming HTML value)
       const value = Number(newValue);
       if (isNaN(value)) return alert("Capacidade deve ser um número.");
       payload.capacity = value;
