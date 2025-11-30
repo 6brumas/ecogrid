@@ -18,6 +18,14 @@ btnLoadTree.addEventListener("click", (e) => {
       return response.json();
     })
     .then((data) => {
+      // Integra dispositivos nos nós para exibição no tooltip
+      if (data.devices) {
+        data.tree.forEach((node) => {
+          if (data.devices[node.id]) {
+            node.devices = data.devices[node.id];
+          }
+        });
+      }
       const root = buildHierarchy(data.tree);
       buildTree(root, g);
     })

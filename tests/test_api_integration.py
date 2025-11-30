@@ -15,8 +15,66 @@ def test_get_tree():
     assert response.status_code == 200
     data = response.json()
     assert "tree" in data
+    assert "devices" in data
     assert "logs" in data
     assert len(data["tree"]) > 0
+
+def test_device_crud():
+    # 1. Find a consumer node
+    response = client.post("/tree")
+    tree = response.json()["tree"]
+    consumer_id = None
+    for node in tree:
+        if node["node_type"] == "CONSUMER_POINT":
+            consumer_id = node["id"]
+            break
+
+    if not consumer_id:
+        pytest.skip("No consumer node found")
+
+    # 2. Add device
+    payload_add = {
+        "id": consumer_id,
+        "add_device": True,
+        "device_type": "TV",
+        "name": "Test TV",
+        "avg_power": 0.2
+    }
+    resp = client.post("/change-node", json=payload_add)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "devices" in data
+    devices = data["devices"][consumer_id]
+
+    # Find our device
+    new_device = next((d for d in devices if d["name"] == "Test TV"), None)
+    assert new_device is not None
+    assert new_device["avg_power"] == 0.2
+
+    dev_id = new_device["id"]
+
+    # 3. Update device
+    payload_update = {
+        "id": consumer_id,
+        "device_id": dev_id,
+        "device_avg_power": 0.5
+    }
+    resp = client.post("/change-node", json=payload_update)
+    assert resp.status_code == 200
+    updated_devices = resp.json()["devices"][consumer_id]
+    updated_device = next(d for d in updated_devices if d["id"] == dev_id)
+    assert updated_device["avg_power"] == 0.5
+
+    # 4. Remove device
+    payload_del = {
+        "id": consumer_id,
+        "delete_device": True,
+        "device_id": dev_id
+    }
+    resp = client.post("/change-node", json=payload_del)
+    assert resp.status_code == 200
+    final_devices = resp.json()["devices"].get(consumer_id, [])
+    assert not any(d["id"] == dev_id for d in final_devices)
 
 def test_change_capacity():
     # Find a node first
@@ -166,6 +224,8 @@ if __name__ == "__main__":
     try:
         test_get_tree()
         print("test_get_tree passed")
+        test_device_crud()
+        print("test_device_crud passed")
         test_change_capacity()
         print("test_change_capacity passed")
         test_add_node()

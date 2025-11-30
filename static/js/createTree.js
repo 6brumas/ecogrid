@@ -175,8 +175,8 @@ function formatTooltip(obj) {
     html += `<br><strong>Dispositivos:</strong><br>`;
     obj.devices.forEach((device) => {
       html += `• ${device.name}<br>`;
-      html += `&nbsp;&nbsp;- Carga média: ${device.average_load} kW<br>`;
-      html += `&nbsp;&nbsp;- Carga atual: ${device.current_load} kW<br>`;
+      html += `&nbsp;&nbsp;- Carga média: ${device.avg_power} kW<br>`;
+      html += `&nbsp;&nbsp;- Carga atual: ${device.current_power} kW<br>`;
     }); 
   }
   return html;

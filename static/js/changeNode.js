@@ -70,6 +70,15 @@ export function setupChangeNode(changeForm, baseUrl) {
       );
 
       const { g } = createSVG(treeContainer);
+
+      if (result.devices) {
+        result.tree.forEach((node) => {
+          if (result.devices[node.id]) {
+            node.devices = result.devices[node.id];
+          }
+        });
+      }
+
       const newRoot = buildHierarchy(result.tree);
       buildTree(newRoot, g);
     } catch (err) {

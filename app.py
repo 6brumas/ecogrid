@@ -13,6 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "backend"))
 
 from api.backend_facade import PowerGridBackend
 from core.models import Node, Edge, NodeType, EdgeType
+from backend.physical.device_model import DeviceType
 
 # Inicializa o BackendFacade
 # Isso lida com o carregamento do grafo a partir de arquivos e configuração do índice/serviço
@@ -161,6 +162,40 @@ async def change_node(data: dict):
 
     elif "new_parent" in data:
         nova_arvore = backend.force_change_parent(id_no, data["new_parent"])
+
+    elif data.get("add_device") is True:
+        device_type_str = data.get("device_type", "GENERIC")
+        try:
+            dtype = DeviceType[device_type_str]
+        except KeyError:
+            dtype = DeviceType.GENERIC
+
+        nova_arvore = backend.add_device(
+            node_id=id_no,
+            device_type=dtype,
+            name=data.get("name", "Novo Dispositivo"),
+            avg_power=float(data.get("avg_power", 0.1))
+        )
+
+    elif data.get("delete_device") is True:
+        device_id = data.get("device_id")
+        if not device_id:
+             return JSONResponse({"error": "Device ID required"}, status_code=400)
+        nova_arvore = backend.remove_device(
+            node_id=id_no,
+            device_id=device_id
+        )
+
+    elif "device_avg_power" in data:
+        device_id = data.get("device_id")
+        if not device_id:
+             return JSONResponse({"error": "Device ID required"}, status_code=400)
+
+        nova_arvore = backend.set_device_average_load(
+            consumer_id=id_no,
+            device_id=device_id,
+            new_avg_power=float(data["device_avg_power"])
+        )
 
     else:
         return JSONResponse({"error": "Nenhuma ação válida fornecida"}, status_code=400)
