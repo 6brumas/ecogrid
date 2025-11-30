@@ -5,10 +5,15 @@ from pathlib import Path
 
 from core.graph_core import PowerGridGraph
 from core.models import Node, Edge, NodeType
+import time
 from logic.bplus_index import BPlusIndex
 from logic.logical_graph_service import LogicalGraphService
 from physical.device_model import DeviceType, IoTDevice
-from physical.device_simulation import DeviceSimulationState, build_device_simulation_state
+from physical.device_simulation import (
+    DeviceSimulationState,
+    build_device_simulation_state,
+    update_devices_and_nodes_loads
+)
 
 # Import modules for initialization
 from io_utils.loader import load_graph_from_files
@@ -103,6 +108,14 @@ class PowerGridBackend:
         Retorna o snapshot atual da árvore lógica para UI.
         Delegado para `logical_backend_api.api_get_tree_snapshot`.
         """
+        # Atualiza o estado da simulação (ruído) antes de tirar o snapshot
+        update_devices_and_nodes_loads(
+            graph=self.graph,
+            sim_state=self.device_state,
+            t_seconds=time.time(),
+            service=self.service
+        )
+
         return api_impl.api_get_tree_snapshot(
             graph=self.graph,
             index=self.index,

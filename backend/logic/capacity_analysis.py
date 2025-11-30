@@ -39,6 +39,7 @@ def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
 
         # Calculate capacity
         count = len(unique_consumers)
-        new_capacity = max(1.0, float(count) * 1.0)
+        # Factor 1.5x for emergency buffer
+        new_capacity = max(1.0, float(count) * 1.5)
 
         node.capacity = new_capacity
