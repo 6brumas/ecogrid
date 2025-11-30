@@ -155,8 +155,9 @@ def api_remove_node(
     if node.node_type in (NodeType.DISTRIBUTION_SUBSTATION, NodeType.TRANSMISSION_SUBSTATION):
         service.remove_station_and_reattach_children(
             station_id=node_id,
-            remove_from_graph=remove_from_graph,
         )
+        if remove_from_graph:
+            graph.remove_node(node_id)
     else:
         # Consumidor ou usina: remoção lógica simples.
         index.detach_node(node_id)
@@ -204,7 +205,7 @@ def api_change_parent_with_routing(
                 "logs": []
             }
     """
-    service.change_parent_with_routing(node_id=node_id)
+    service.change_parent_with_routing(child_id=node_id)
 
     return build_full_ui_snapshot(
         graph=graph,
@@ -250,8 +251,8 @@ def api_force_change_parent(
             }
     """
     service.force_change_parent(
-        node_id=node_id,
-        forced_parent_id=forced_parent_id,
+        child_id=node_id,
+        new_parent_id=forced_parent_id,
     )
 
     return build_full_ui_snapshot(

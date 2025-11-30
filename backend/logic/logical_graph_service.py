@@ -356,6 +356,8 @@ class LogicalGraphService:
             if child.node_type == NodeType.CONSUMER_POINT:
                 self.unsupplied_consumers.add(child_id)
 
+            print(f"[DEBUG] Failed to find parent via routing for {child_id}. Graph size: {len(self.graph.nodes)}")
+
             return ChangeParentResult(
                 success=False,
                 child_id=child_id,
