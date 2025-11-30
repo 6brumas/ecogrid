@@ -43,11 +43,11 @@ export function createSVG(fromButton) {
 }
 
 export function buildHierarchy(flatData) {
-  // Check if we have multiple roots (nodes with null parent_id)
+  // Verifica se temos múltiplos nós raízes (nós com parent_id nulo)
   const roots = flatData.filter(d => d.parent_id === null);
 
   if (roots.length > 1) {
-    // Create a virtual root
+    // Cria um nó raiz virtual
     const virtualRoot = {
       id: "virtual_root",
       parent_id: null,
@@ -55,7 +55,7 @@ export function buildHierarchy(flatData) {
       status: "NORMAL"
     };
 
-    // Modify existing roots to point to virtual root
+    // Modifica as raízes existentes para apontarem para a raiz virtual
     const modifiedData = flatData.map(d => {
       if (d.parent_id === null) {
         return { ...d, parent_id: "virtual_root" };
