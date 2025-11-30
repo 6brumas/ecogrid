@@ -502,7 +502,7 @@ def api_add_device(
     node_id: str,
     device_type: DeviceType,
     name: str = "Novo Dispositivo",
-    avg_power: float = 0.1,
+    avg_power: float | None = None,
 ) -> Dict[str, List[Dict]]:
     """
     Adiciona um novo dispositivo IoT a um nó consumidor.
@@ -521,12 +521,17 @@ def api_add_device(
     # 2. Cria dispositivo
     new_id = f"DEV_{uuid.uuid4().hex[:8]}"
 
+    template = get_device_template(device_type)
+
+    # Se avg_power não foi informado, usa do template
+    final_avg_power = avg_power if avg_power is not None else template.avg_power
+
     new_device = IoTDevice(
         id=new_id,
         name=name,
         device_type=device_type,
-        avg_power=avg_power,
-        current_power=avg_power # Inicializa com valor médio
+        avg_power=final_avg_power,
+        current_power=final_avg_power # Inicializa com valor médio
     )
 
     # 3. Adiciona ao estado

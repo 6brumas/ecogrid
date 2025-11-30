@@ -244,7 +244,7 @@ class PowerGridBackend:
         node_id: str,
         device_type: DeviceType,
         name: str = "Novo Dispositivo",
-        avg_power: float = 0.1,
+        avg_power: Optional[float] = None,
     ) -> Dict[str, List[Dict]]:
         """
         Adiciona um dispositivo a um nó consumidor.
