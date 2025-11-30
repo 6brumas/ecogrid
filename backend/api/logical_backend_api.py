@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Dict, List, MutableMapping, Sequence
 
 from core.graph_core import PowerGridGraph
@@ -7,12 +8,16 @@ from core.models import Edge, Node, NodeType
 from logic.bplus_index import BPlusIndex
 from logic.logical_graph_service import LogicalGraphService
 from logic.ui_tree_snapshot import build_full_ui_snapshot
-from physical.device_model import IoTDevice
+from physical.device_catalog import get_device_template
+from physical.device_model import DeviceType, IoTDevice
+from physical.device_simulation import DeviceSimulationState, _create_devices_for_node
+from physical.load_process import make_load_config_from_template
 
 def api_get_tree_snapshot(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
 ) -> Dict[str, List[Dict]]:
     """
     Retorna o snapshot atual da árvore lógica para o front-end, sem
@@ -46,12 +51,128 @@ def api_get_tree_snapshot(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
+    )
+
+
+def api_add_device(
+    graph: PowerGridGraph,
+    index: BPlusIndex,
+    service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
+    node_id: str,
+    device_type: DeviceType,
+    name: str = "Novo Dispositivo",
+    avg_power: float = 0.1,
+) -> Dict[str, List[Dict]]:
+    """
+    Adiciona um novo dispositivo IoT a um nó consumidor.
+    """
+    # 1. Verifica se nó existe e é consumidor
+    node = graph.get_node(node_id)
+    if not node or node.node_type != NodeType.CONSUMER_POINT:
+        return build_full_ui_snapshot(
+            graph=graph,
+            index=index,
+            unsupplied_ids=service.unsupplied_consumers,
+            devices_by_node=sim_state.devices_by_node,
+        )
+
+    # 2. Cria dispositivo
+    new_id = f"DEV_{uuid.uuid4().hex[:8]}"
+
+    new_device = IoTDevice(
+        id=new_id,
+        name=name,
+        device_type=device_type,
+        avg_power=avg_power,
+        current_power=avg_power # Inicializa com valor médio
+    )
+
+    # 3. Adiciona ao estado
+    if node_id not in sim_state.devices_by_node:
+        sim_state.devices_by_node[node_id] = []
+
+    sim_state.devices_by_node[node_id].append(new_device)
+    sim_state.devices_by_id[new_id] = new_device
+
+    # Adiciona config de carga
+    template = get_device_template(device_type)
+    config = make_load_config_from_template(template)
+    sim_state.load_config_by_device_id[new_id] = config
+
+    # 4. Atualiza carga da rede
+    service.update_load_after_device_change(
+        consumer_id=node_id,
+        node_devices=sim_state.devices_by_node
+    )
+
+    return build_full_ui_snapshot(
+        graph=graph,
+        index=index,
+        unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
+    )
+
+
+def api_remove_device(
+    graph: PowerGridGraph,
+    index: BPlusIndex,
+    service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
+    node_id: str,
+    device_id: str,
+) -> Dict[str, List[Dict]]:
+    """
+    Remove um dispositivo IoT de um nó consumidor.
+    """
+    # 1. Busca dispositivo
+    devices = sim_state.devices_by_node.get(node_id)
+    if not devices:
+        return build_full_ui_snapshot(
+            graph=graph,
+            index=index,
+            unsupplied_ids=service.unsupplied_consumers,
+            devices_by_node=sim_state.devices_by_node,
+        )
+
+    target_idx = -1
+    for i, dev in enumerate(devices):
+        if dev.id == device_id:
+            target_idx = i
+            break
+
+    if target_idx == -1:
+        return build_full_ui_snapshot(
+            graph=graph,
+            index=index,
+            unsupplied_ids=service.unsupplied_consumers,
+            devices_by_node=sim_state.devices_by_node,
+        )
+
+    # 2. Remove
+    devices.pop(target_idx)
+    sim_state.devices_by_id.pop(device_id, None)
+    sim_state.load_config_by_device_id.pop(device_id, None)
+
+    # 3. Atualiza carga
+    service.update_load_after_device_change(
+        consumer_id=node_id,
+        node_devices=sim_state.devices_by_node
+    )
+
+    return build_full_ui_snapshot(
+        graph=graph,
+        index=index,
+        unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
     
 def api_add_node_with_routing(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
     node: Node,
     edges: Sequence[Edge],
 ) -> Dict[str, List[Dict]]:
@@ -86,6 +207,7 @@ def api_add_node_with_routing(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
 
 
@@ -93,6 +215,7 @@ def api_remove_node(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
     node_id: str,
     remove_from_graph: bool = True,
 ) -> Dict[str, List[Dict]]:
@@ -150,13 +273,15 @@ def api_remove_node(
             graph=graph,
             index=index,
             unsupplied_ids=service.unsupplied_consumers,
+            devices_by_node=sim_state.devices_by_node,
         )
 
     if node.node_type in (NodeType.DISTRIBUTION_SUBSTATION, NodeType.TRANSMISSION_SUBSTATION):
         service.remove_station_and_reattach_children(
             station_id=node_id,
-            remove_from_graph=remove_from_graph,
         )
+        if remove_from_graph:
+            graph.remove_node(node_id)
     else:
         # Consumidor ou usina: remoção lógica simples.
         index.detach_node(node_id)
@@ -164,10 +289,18 @@ def api_remove_node(
         if remove_from_graph:
             graph.remove_node(node_id)
 
+    # Limpa dispositivos associados se o nó foi removido
+    if remove_from_graph:
+        devices = sim_state.devices_by_node.pop(node_id, [])
+        for dev in devices:
+            sim_state.devices_by_id.pop(dev.id, None)
+            sim_state.load_config_by_device_id.pop(dev.id, None)
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
 
 
@@ -175,6 +308,7 @@ def api_change_parent_with_routing(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
     node_id: str,
 ) -> Dict[str, List[Dict]]:
     """
@@ -204,12 +338,13 @@ def api_change_parent_with_routing(
                 "logs": []
             }
     """
-    service.change_parent_with_routing(node_id=node_id)
+    service.change_parent_with_routing(child_id=node_id)
 
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
 
 
@@ -217,6 +352,7 @@ def api_force_change_parent(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
     node_id: str,
     forced_parent_id: str,
 ) -> Dict[str, List[Dict]]:
@@ -250,14 +386,15 @@ def api_force_change_parent(
             }
     """
     service.force_change_parent(
-        node_id=node_id,
-        forced_parent_id=forced_parent_id,
+        child_id=node_id,
+        new_parent_id=forced_parent_id,
     )
 
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
 
 
@@ -265,6 +402,7 @@ def api_set_node_capacity(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
     node_id: str,
     new_capacity: float,
 ) -> Dict[str, List[Dict]]:
@@ -302,6 +440,7 @@ def api_set_node_capacity(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
 
 
@@ -309,6 +448,7 @@ def api_force_overload(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
+    sim_state: DeviceSimulationState,
     node_id: str,
     overload_percentage: float,
 ) -> Dict[str, List[Dict]]:
@@ -341,6 +481,7 @@ def api_force_overload(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
 
 
@@ -348,7 +489,7 @@ def api_set_device_average_load(
     graph: PowerGridGraph,
     index: BPlusIndex,
     service: LogicalGraphService,
-    node_devices: MutableMapping[str, List[IoTDevice]],
+    sim_state: DeviceSimulationState,
     consumer_id: str,
     device_id: str,
     new_avg_power: float,
@@ -411,13 +552,14 @@ def api_set_device_average_load(
                 "logs": []
             }
     """
-    devices = node_devices.get(consumer_id)
+    devices = sim_state.devices_by_node.get(consumer_id)
     if not devices:
         # Nenhum device para esse consumidor: retorna snapshot atual.
         return build_full_ui_snapshot(
             graph=graph,
             index=index,
             unsupplied_ids=service.unsupplied_consumers,
+            devices_by_node=sim_state.devices_by_node,
         )
 
     target_device: IoTDevice | None = None
@@ -432,6 +574,7 @@ def api_set_device_average_load(
             graph=graph,
             index=index,
             unsupplied_ids=service.unsupplied_consumers,
+            devices_by_node=sim_state.devices_by_node,
         )
 
     # Atualiza potência média e, se desejado, a potência atual.
@@ -442,13 +585,14 @@ def api_set_device_average_load(
     # Recalcula carga do consumidor e propaga na árvore lógica.
     service.update_load_after_device_change(
         consumer_id=consumer_id,
-        node_devices=node_devices,
+        node_devices=sim_state.devices_by_node,
     )
 
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
         unsupplied_ids=service.unsupplied_consumers,
+        devices_by_node=sim_state.devices_by_node,
     )
 
 
@@ -460,5 +604,7 @@ __all__: Sequence[str] = [
     "api_set_node_capacity",
     "api_force_overload",
     "api_set_device_average_load",
+    "api_add_device",
+    "api_remove_device",
     "api_get_tree_snapshot",
 ]
