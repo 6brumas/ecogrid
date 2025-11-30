@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from core.graph_core import PowerGridGraph
 from core.models import Node, NodeType
 from logic.bplus_index import BPlusIndex
+from physical.device_model import IoTDevice
 
 
 def _compute_status(node: Node, unsupplied_ids: Set[str]) -> str:
@@ -115,11 +116,38 @@ def _build_tree_entry(
     }
 
 
+def _serialize_devices(
+    devices_by_node: Dict[str, List[IoTDevice]],
+) -> Dict[str, List[Dict]]:
+    """
+    Serializa os dispositivos IoT para formato JSON.
+
+    Retorna:
+        Dicionário node_id -> lista de dicts de dispositivos.
+    """
+    serialized: Dict[str, List[Dict]] = {}
+    for node_id, devices in devices_by_node.items():
+        if not devices:
+            continue
+
+        serialized[node_id] = []
+        for dev in devices:
+            serialized[node_id].append({
+                "id": dev.id,
+                "name": dev.name,
+                "device_type": dev.device_type.name,
+                "avg_power": dev.avg_power,
+                "current_power": dev.current_power,
+            })
+    return serialized
+
+
 def build_full_ui_snapshot(
     graph: PowerGridGraph,
     index: BPlusIndex,
     unsupplied_ids: Set[str],
-) -> Dict[str, List[Dict]]:
+    devices_by_node: Optional[Dict[str, List[IoTDevice]]] = None,
+) -> Dict[str, Any]:
     """
     Gera o snapshot completo da árvore lógica para o front-end, em formato
     plano (flat) e em ordem de pré-ordem da árvore B+.
@@ -128,6 +156,7 @@ def build_full_ui_snapshot(
 
         {
           "tree": [...],
+          "devices": { ... },
           "logs": []
         }
 
@@ -140,6 +169,9 @@ def build_full_ui_snapshot(
               position_x, position_y,
               cluster_id, nominal_voltage,
               capacity, current_load, status
+
+        - "devices" é um dicionário opcional que mapeia node_id para
+          uma lista de dispositivos conectados.
 
         - "logs" é, por ora, uma lista vazia, reservada para mensagens
           de auditoria ou eventos relevantes em versões futuras.
@@ -161,10 +193,13 @@ def build_full_ui_snapshot(
         unsupplied_ids:
             Conjunto de ids de nós consumidores marcados como sem
             suprimento adequado (impacta o campo "status").
+        devices_by_node:
+            Dicionário opcional mapeando node_id -> lista de IoTDevice.
 
     Retorno:
         Dicionário com as chaves:
             - "tree": lista de nós da árvore de UI.
+            - "devices": dicionário de dispositivos (ou {}).
             - "logs": lista (atualmente vazia) de mensagens de log.
     """
     tree_entries: List[Dict] = []
@@ -185,9 +220,14 @@ def build_full_ui_snapshot(
         )
         tree_entries.append(entry)
 
+    devices_data = {}
+    if devices_by_node:
+        devices_data = _serialize_devices(devices_by_node)
+
     # Estrutura final esperada pelo front-end.
     return {
         "tree": tree_entries,
+        "devices": devices_data,
         "logs": [],
     }
 
