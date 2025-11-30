@@ -136,27 +136,6 @@ export function buildTree(root, g) {
     })
     .on("mouseout", () => tooltip.classed("hidden", true));
 
-  // barra baseada na utilization_ratio
-  // node
-  //   .append("rect")
-  //   .attr("class", "util-bar-bg")
-  //   .attr("x", -20)
-  //   .attr("y", -22)
-  //   .attr("width", 40)
-  //   .attr("height", 4)
-  //   .attr("rx", 2)
-  //   .attr("fill", "#ddd");
-
-  // node
-  //   .append("rect")
-  //   .attr("class", "util-bar-fill")
-  //   .attr("x", -20)
-  //   .attr("y", -22)
-  //   .attr("height", 4)
-  //   .attr("rx", 2)
-  //   .attr("width", (d) => 40 * (d.data.utilization_ratio ?? 0))
-  //   .attr("fill", (d) => statusColors[d.data.status] || "#fff");
-
   // retângulo de fundo do ícone com cor baseada no status
   node
     .insert("rect", "image")
