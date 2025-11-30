@@ -147,6 +147,7 @@ def build_full_ui_snapshot(
     index: BPlusIndex,
     unsupplied_ids: Set[str],
     devices_by_node: Optional[Dict[str, List[IoTDevice]]] = None,
+    logs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Gera o snapshot completo da árvore lógica para o front-end, em formato
@@ -157,7 +158,7 @@ def build_full_ui_snapshot(
         {
           "tree": [...],
           "devices": { ... },
-          "logs": []
+          "logs": [...]
         }
 
     onde:
@@ -173,8 +174,7 @@ def build_full_ui_snapshot(
         - "devices" é um dicionário opcional que mapeia node_id para
           uma lista de dispositivos conectados.
 
-        - "logs" é, por ora, uma lista vazia, reservada para mensagens
-          de auditoria ou eventos relevantes em versões futuras.
+        - "logs" contém mensagens descritivas sobre operações recentes.
 
     Estratégia de varredura:
 
@@ -195,12 +195,14 @@ def build_full_ui_snapshot(
             suprimento adequado (impacta o campo "status").
         devices_by_node:
             Dicionário opcional mapeando node_id -> lista de IoTDevice.
+        logs:
+            Lista opcional de mensagens de log.
 
     Retorno:
         Dicionário com as chaves:
             - "tree": lista de nós da árvore de UI.
             - "devices": dicionário de dispositivos (ou {}).
-            - "logs": lista (atualmente vazia) de mensagens de log.
+            - "logs": lista de mensagens de log.
     """
     tree_entries: List[Dict] = []
 
@@ -228,7 +230,7 @@ def build_full_ui_snapshot(
     return {
         "tree": tree_entries,
         "devices": devices_data,
-        "logs": [],
+        "logs": logs or [],
     }
 
 

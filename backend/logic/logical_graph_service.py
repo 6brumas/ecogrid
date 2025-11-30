@@ -132,6 +132,15 @@ class LogicalGraphService:
         self.graph = graph
         self.index = index
         self.unsupplied_consumers: Set[str] = set()
+        self._log_buffer: List[str] = []
+
+    def log(self, message: str) -> None:
+        self._log_buffer.append(message)
+
+    def consume_logs(self) -> List[str]:
+        logs = list(self._log_buffer)
+        self._log_buffer.clear()
+        return logs
 
     # ------------------------------------------------------------------
     # Hidratação do estado lógico (Correção 1.1)
@@ -180,6 +189,11 @@ class LogicalGraphService:
         for node in nodes_to_process:
             self.change_parent_with_routing(child_id=node.id)
 
+        # Log de inicialização
+        ts_count = sum(1 for n in self.graph.nodes.values() if n.node_type == NodeType.TRANSMISSION_SUBSTATION)
+        ds_count = sum(1 for n in self.graph.nodes.values() if n.node_type == NodeType.DISTRIBUTION_SUBSTATION)
+        self.log(f"Rede ligada e inicializada com sucesso. {ts_count} Subestações de Transmissão e {ds_count} Subestações de Distribuição conectadas aos seus fornecedores.")
+
     # ------------------------------------------------------------------
     # Atualização de carga a partir de dispositivos
     # ------------------------------------------------------------------
@@ -223,6 +237,9 @@ class LogicalGraphService:
         parent_id = self.index.get_parent(consumer_id)
         if parent_id is not None and consumer_id in self.unsupplied_consumers:
             self.unsupplied_consumers.discard(consumer_id)
+
+        current_load = float(self.graph.get_node(consumer_id).current_load or 0.0)
+        self.log(f"Carga do consumidor {consumer_id} atualizada para {current_load:.2f}kW devido a alterações nos dispositivos.")
 
     # ------------------------------------------------------------------
     # Capacidade de nós
@@ -299,6 +316,8 @@ class LogicalGraphService:
 
         # Atualiza a capacidade do nó
         node.capacity = new_capacity
+
+        self.log(f"ALERTA: Fornecedor {node_id} teve sua capacidade limitada a {new_capacity:.2f}kW. Iniciando redistribuição de carga.")
 
         return True
 
@@ -443,6 +462,8 @@ class LogicalGraphService:
         if child.node_type == NodeType.CONSUMER_POINT:
             self.unsupplied_consumers.discard(child_id)
 
+        self.log(f"Nó {child_id} trocou de fornecedor: saiu de {old_parent_id} para {new_parent_id}.")
+
         return ChangeParentResult(
             success=True,
             child_id=child_id,
@@ -572,6 +593,8 @@ class LogicalGraphService:
         if child.node_type == NodeType.CONSUMER_POINT:
             self.unsupplied_consumers.discard(child_id)
 
+        self.log(f"Nó {child_id} trocou de fornecedor: saiu de {old_parent_id} para {new_parent_id}.")
+
         return ChangeParentResult(
             success=True,
             child_id=child_id,
@@ -629,6 +652,11 @@ class LogicalGraphService:
 
         # Para os demais tipos, tentamos achar um pai adequado via roteamento.
         result = self.change_parent_with_routing(child_id=node.id)
+
+        if result.success:
+            self.log(f"Nó {node.id} ({node.node_type.name}) foi conectado ao fornecedor {result.new_parent_id}.")
+        else:
+            self.log(f"Nó {node.id} foi adicionado, mas não encontrou um fornecedor compatível e está sem energia.")
 
         # Se não houver pai viável e o nó for consumidor, garantimos
         # que ele esteja marcado como não suprido.

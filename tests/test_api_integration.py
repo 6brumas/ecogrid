@@ -112,8 +112,14 @@ def test_add_node():
     response = client.post("/change-node", json=payload)
     assert response.status_code == 200
 
-    new_tree = response.json()["tree"]
+    data = response.json()
+    new_tree = data["tree"]
     assert len(new_tree) > len(tree)
+
+    # Check logs
+    logs = data.get("logs", [])
+    assert len(logs) > 0
+    assert any("foi conectado ao fornecedor" in log for log in logs)
 
     # Identify the new node (it should have parent_id = parent_id)
     # The new node id is random, so we just check count or existence of a new child
