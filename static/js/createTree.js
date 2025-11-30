@@ -43,6 +43,34 @@ export function createSVG(fromButton) {
 }
 
 export function buildHierarchy(flatData) {
+  // Verifica se temos múltiplos nós raízes (nós com parent_id nulo)
+  const roots = flatData.filter(d => d.parent_id === null);
+
+  if (roots.length > 1) {
+    // Cria um nó raiz virtual
+    const virtualRoot = {
+      id: "virtual_root",
+      parent_id: null,
+      node_type: "default",
+      status: "NORMAL"
+    };
+
+    // Modifica as raízes existentes para apontarem para a raiz virtual
+    const modifiedData = flatData.map(d => {
+      if (d.parent_id === null) {
+        return { ...d, parent_id: "virtual_root" };
+      }
+      return d;
+    });
+
+    modifiedData.push(virtualRoot);
+
+    return d3
+      .stratify()
+      .id((d) => d.id)
+      .parentId((d) => d.parent_id)(modifiedData);
+  }
+
   return d3
     .stratify()
     .id((d) => d.id)
@@ -108,27 +136,6 @@ export function buildTree(root, g) {
     })
     .on("mouseout", () => tooltip.classed("hidden", true));
 
-  // barra baseada na utilization_ratio
-  // node
-  //   .append("rect")
-  //   .attr("class", "util-bar-bg")
-  //   .attr("x", -20)
-  //   .attr("y", -22)
-  //   .attr("width", 40)
-  //   .attr("height", 4)
-  //   .attr("rx", 2)
-  //   .attr("fill", "#ddd");
-
-  // node
-  //   .append("rect")
-  //   .attr("class", "util-bar-fill")
-  //   .attr("x", -20)
-  //   .attr("y", -22)
-  //   .attr("height", 4)
-  //   .attr("rx", 2)
-  //   .attr("width", (d) => 40 * (d.data.utilization_ratio ?? 0))
-  //   .attr("fill", (d) => statusColors[d.data.status] || "#fff");
-
   // retângulo de fundo do ícone com cor baseada no status
   node
     .insert("rect", "image")
@@ -168,8 +175,8 @@ function formatTooltip(obj) {
     html += `<br><strong>Dispositivos:</strong><br>`;
     obj.devices.forEach((device) => {
       html += `• ${device.name}<br>`;
-      html += `&nbsp;&nbsp;- Carga média: ${device.average_load} kW<br>`;
-      html += `&nbsp;&nbsp;- Carga atual: ${device.current_load} kW<br>`;
+      html += `&nbsp;&nbsp;- Carga média: ${device.avg_power} kW<br>`;
+      html += `&nbsp;&nbsp;- Carga atual: ${device.current_power} kW<br>`;
     }); 
   }
   return html;
