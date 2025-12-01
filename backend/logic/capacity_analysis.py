@@ -8,41 +8,34 @@ from logic.bplus_index import BPlusIndex
 def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
     """
     Inicializa a capacidade dos nós (Subestações e Usinas) baseado na topologia.
-    Regra: Node.capacity = max(1.0, len(unique_consumers_in_subtree) * 1.5)
+    Regra: Node.capacity = 8.0 * (numero_de_filhos_diretos + 1)
 
     NOTA: Nós do tipo CONSUMER_POINT são ignorados nesta função, pois sua capacidade
     é definida por regras específicas de negócio (13kW/25kW) com base nos dispositivos instalados.
     """
 
-    # Map node_id -> Set of consumer_ids
-    consumers_in_subtree: Dict[str, Set[str]] = {}
+    # Iteramos sobre todos os nós no índice
+    # A classe BPlusIndex expõe _parent que contém todas as chaves (nós registrados).
+    # Vamos acessar as chaves de _parent via um método auxiliar se possível, ou iterar sobre as chaves.
+    # Como _parent é interno, o correto seria usar um método público.
+    # O método iter_preorder() retorna todos os nós da árvore.
 
-    # Bottom-up traversal: reverse of preorder
-    # This ensures children are processed before parents
-    nodes_ordered = list(index.iter_preorder())
-    nodes_bottom_up = reversed(nodes_ordered)
+    all_nodes = index.iter_preorder()
 
-    for node_id in nodes_bottom_up:
+    for node_id in all_nodes:
         node = graph.get_node(node_id)
         if node is None:
             continue
 
-        unique_consumers: Set[str] = set()
-
+        # Pula consumidores (já definidos na inicialização de dispositivos)
         if node.node_type == NodeType.CONSUMER_POINT:
-            unique_consumers.add(node_id)
+            continue
 
-        # Add children's consumers
-        children_ids = index.get_children(node_id)
-        for child_id in children_ids:
-            if child_id in consumers_in_subtree:
-                unique_consumers.update(consumers_in_subtree[child_id])
+        # Obtém número de filhos diretos
+        children_ids = list(index.get_children(node_id))
+        num_children = len(children_ids)
 
-        consumers_in_subtree[node_id] = unique_consumers
+        # Aplica a nova regra: 8 * (filhos + 1)
+        new_capacity = 8.0 * (num_children + 1)
 
-        # Calculate capacity ONLY for non-consumers
-        if node.node_type != NodeType.CONSUMER_POINT:
-            count = len(unique_consumers)
-            # Factor 1.5x for emergency buffer
-            new_capacity = max(1.0, float(count) * 1.5)
-            node.capacity = new_capacity
+        node.capacity = new_capacity

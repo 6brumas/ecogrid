@@ -17,7 +17,7 @@ class TestCapacityAndPropagation(unittest.TestCase):
         """
         Verify that:
         1. Consumers have capacity 13.0 or 25.0 based on devices.
-        2. Substations have capacity ~ 1.5 * unique consumers count.
+        2. Substations have capacity = 8.0 * (num_children + 1).
         """
         cfg = SimulationConfig(
             random_seed=123,
@@ -44,20 +44,13 @@ class TestCapacityAndPropagation(unittest.TestCase):
         self.assertTrue(len(substations) > 0)
 
         for s in substations:
-            # Calculate expected unique consumers
-            # We can use the helper function logic or just traverse
-            # A simple check is capacity > 1.0 (default fallback) if it has children
             children = list(index.get_children(s.id))
-            if children:
-                # If it has children, capacity should be significantly higher than 1.0
-                # Assuming at least one child is a consumer or leads to one
-                self.assertGreater(s.capacity, 1.0, f"Substation {s.id} capacity {s.capacity} too low")
+            num_children = len(children)
 
-                # Verify roughly 1.5x logic for a specific known leaf count
-                # This is hard without traversing the whole tree myself.
-                # Let's trust the integration if it's > 1.0 and looks reasonable.
-                # E.g. if it has 10 consumers, capacity ~ 15.0
-                pass
+            expected_capacity = 8.0 * (num_children + 1)
+
+            self.assertAlmostEqual(s.capacity, expected_capacity, places=3,
+                                   msg=f"Substation {s.id} capacity mismatch. Children: {num_children}")
 
     def test_load_propagation(self):
         """

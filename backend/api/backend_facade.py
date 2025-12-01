@@ -253,11 +253,6 @@ class PowerGridBackend:
         self.service.handle_overload(node_id)
         return self.get_tree_snapshot()
 
-        # Trata a sobrecarga (shedding)
-        self.service.handle_overload(node_id)
-
-        return self.get_tree_snapshot()
-
     def set_device_average_load(
         self,
         consumer_id: str,
