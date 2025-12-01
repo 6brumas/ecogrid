@@ -4,6 +4,7 @@ from typing import Dict, List, MutableMapping, Sequence, Optional, Union
 from pathlib import Path
 import os
 import time
+import random
 
 from core.graph_core import PowerGridGraph
 from core.models import Node, Edge, NodeType
@@ -15,6 +16,7 @@ from physical.device_simulation import (
     build_device_simulation_state,
     update_devices_and_nodes_loads
 )
+from physical.device_catalog import get_device_template
 
 # Import modules for initialization
 from io_utils.loader import load_graph_from_files
@@ -30,17 +32,6 @@ from api import logical_backend_api as api_impl
 class PowerGridBackend:
     """
     Fachada (Facade) Stateful para o backend de simulação de rede elétrica.
-
-    Esta classe encapsula o estado da aplicação (grafo físico, índice lógico,
-    serviço de domínio) e oferece uma interface simplificada para consumidores
-    (CLI, Web API, Testes), eliminando a necessidade de microgerenciamento
-    de dependências e inicialização.
-
-    Responsabilidades:
-        - Carregar e persistir o estado do grafo (`PowerGridGraph`).
-        - Manter a integridade do índice lógico (`BPlusIndex`).
-        - Orquestrar operações de domínio via `LogicalGraphService`.
-        - Prover métodos de alto nível que ocultam a complexidade interna.
     """
 
     def __init__(
@@ -48,27 +39,14 @@ class PowerGridBackend:
         config_or_path: Union[SimulationConfig, str] = "out/nodes",
         edges_path: str = "out/edges",
     ) -> None:
-        """
-        Inicializa o backend. Pode receber:
-        1. Paths para arquivos existentes (modo produção/default).
-        2. Um objeto SimulationConfig (modo teste/geração dinâmica).
 
-        Se um SimulationConfig for passado, o grafo é gerado em memória
-        (ou em arquivos temporários) antes de carregar.
-        """
-
-        # Check if NOT a string, assuming it is a config object.
-        # This avoids issues with isinstance(obj, Class) if Class is imported from different module paths.
-        if not isinstance(config_or_path, str):
+        if isinstance(config_or_path, SimulationConfig):
             # Modo Geração Dinâmica (Testes ou Nova Simulação)
             cfg = config_or_path
             # Gera os arquivos usando o gerador
             generate_grid_if_needed(cfg, force_regenerate=True)
 
             # Ajuste de path para testes rodando da raiz
-            # O gerador salva em "backend/out" se executado da raiz, ou "out" se executado do backend
-
-            # Vamos detectar onde foi salvo
             possible_dirs = ["backend/out", "out"]
             found = False
             for d in possible_dirs:
@@ -79,7 +57,6 @@ class PowerGridBackend:
                     break
 
             if not found:
-                # Fallback para o default se não encontrado (provavelmente falhará)
                 self._nodes_path = "out/nodes"
                 self._edges_path = "out/edges"
 
@@ -89,10 +66,8 @@ class PowerGridBackend:
             self._edges_path = edges_path
 
         # 1. Carrega grafo físico
-        # Verifica se o arquivo existe antes de tentar abrir
         if isinstance(self._nodes_path, str):
             if not os.path.exists(self._nodes_path):
-                 # Try appending backend/ prefix if running from root
                  if os.path.exists(os.path.join("backend", self._nodes_path)):
                      self._nodes_path = os.path.join("backend", self._nodes_path)
                      self._edges_path = os.path.join("backend", self._edges_path)
@@ -102,26 +77,48 @@ class PowerGridBackend:
             edges_path=self._edges_path,
         )
 
-        # 2. Constrói estado lógico (inclui hidratação via service.hydrate_from_physical)
-        # build_logical_state já retorna (graph, index, service) populados.
+        # 2. Constrói estado lógico
         _, self.index, self.service = build_logical_state(self.graph)
 
-        # 2.5. Inicializa capacidades baseado na topologia
+        # 3. Inicializa dispositivos e aplica regras de dimensionamento para CONSUMIDORES
+        self._init_default_devices()
+
+        # 4. Inicializa capacidades de SUBESTAÇÕES baseado na topologia (1.5x)
+        # Nota: initialize_capacities agora ignora CONSUMER_POINT para não sobrescrever a lógica de 13/25kW
         initialize_capacities(self.graph, self.index)
 
-        # 3. Inicializa dispositivos
-        self._init_default_devices()
 
     def _init_default_devices(self) -> None:
         """
         Inicializa o estado de simulação de dispositivos com valores padrão
-        para todos os consumidores do grafo.
+        para todos os consumidores do grafo, aplicando regras de negócio:
+        - Seleção aleatória de 3 a 10 dispositivos.
+        - Dimensionamento de capacidade (13kW mono vs 25kW trifásica).
         """
         node_device_types = {}
+        all_device_types = list(DeviceType)
+
         for node in self.graph.nodes.values():
             if node.node_type == NodeType.CONSUMER_POINT:
-                # Default configuration: 1 TV, 1 Fridge
-                node_device_types[node.id] = [DeviceType.TV, DeviceType.FRIDGE]
+                # Sorteia N (3 a 10) dispositivos aleatórios
+                num_devices = random.randint(3, 10)
+                selected_types = [random.choice(all_device_types) for _ in range(num_devices)]
+                node_device_types[node.id] = selected_types
+
+                # Regra de Negócio (Dimensionamento)
+                sum_load = 0.0
+                for dtype in selected_types:
+                    template = get_device_template(dtype)
+                    sum_load += template.avg_power
+
+                # Se Soma_Carga <= 13.0 kW -> Capacidade = 13.000 kW (Monofásica)
+                # Se Soma_Carga > 13.0 kW -> Capacidade = 25.000 kW (Trifásica)
+                if sum_load <= 13.0:
+                    node.capacity = 13.0
+                else:
+                    node.capacity = 25.0
+
+                # Note: Network Type (Monofásica/Trifásica) is derived in ui_tree_snapshot from capacity.
 
         self.device_state = build_device_simulation_state(
             graph=self.graph,
@@ -171,9 +168,6 @@ class PowerGridBackend:
         node: Node,
         edges: Sequence[Edge],
     ) -> Dict[str, List[Dict]]:
-        """
-        Adiciona um nó e conecta-o logicamente via roteamento.
-        """
         return api_impl.api_add_node_with_routing(
             graph=self.graph,
             index=self.index,
@@ -188,9 +182,6 @@ class PowerGridBackend:
         node_id: str,
         remove_from_graph: bool = True,
     ) -> Dict[str, List[Dict]]:
-        """
-        Remove um nó da lógica (e opcionalmente do físico).
-        """
         return api_impl.api_remove_node(
             graph=self.graph,
             index=self.index,
@@ -204,9 +195,6 @@ class PowerGridBackend:
         self,
         node_id: str,
     ) -> Dict[str, List[Dict]]:
-        """
-        Recalcula o pai lógico de um nó via roteamento.
-        """
         return api_impl.api_change_parent_with_routing(
             graph=self.graph,
             index=self.index,
@@ -220,9 +208,6 @@ class PowerGridBackend:
         node_id: str,
         forced_parent_id: str,
     ) -> Dict[str, List[Dict]]:
-        """
-        Força a troca de pai para um nó específico.
-        """
         return api_impl.api_force_change_parent(
             graph=self.graph,
             index=self.index,
@@ -241,9 +226,6 @@ class PowerGridBackend:
         node_id: str,
         new_capacity: float,
     ) -> Dict[str, List[Dict]]:
-        """
-        Define a capacidade máxima de um nó.
-        """
         result = api_impl.api_set_node_capacity(
             graph=self.graph,
             index=self.index,
@@ -252,16 +234,7 @@ class PowerGridBackend:
             node_id=node_id,
             new_capacity=new_capacity,
         )
-        # Verifica se a mudança causou sobrecarga e trata
         self.service.handle_overload(node_id)
-        # O snapshot retornado pela api_impl não incluirá as mudanças de shedding
-        # se elas ocorrerem DEPOIS. Deveríamos retornar um novo snapshot?
-        # Sim, o handle_overload altera a rede.
-        # Mas api_set_node_capacity já retornou o dict.
-        # Eu devo chamar get_tree_snapshot novamente ou atualizar?
-        # O ideal é que api_set_node_capacity chamasse handle_overload.
-        # Mas api_impl é funcional e service é stateful.
-        # Eu posso chamar get_tree_snapshot() aqui e retornar.
         return self.get_tree_snapshot()
 
     def force_overload(
@@ -269,9 +242,6 @@ class PowerGridBackend:
         node_id: str,
         overload_percentage: float,
     ) -> Dict[str, List[Dict]]:
-        """
-        Força sobrecarga em um nó reduzindo sua capacidade.
-        """
         api_impl.api_force_overload(
             graph=self.graph,
             index=self.index,
@@ -280,6 +250,8 @@ class PowerGridBackend:
             node_id=node_id,
             overload_percentage=overload_percentage,
         )
+        self.service.handle_overload(node_id)
+        return self.get_tree_snapshot()
 
         # Trata a sobrecarga (shedding)
         self.service.handle_overload(node_id)
@@ -293,9 +265,6 @@ class PowerGridBackend:
         new_avg_power: float,
         adjust_current_to_average: bool = True,
     ) -> Dict[str, List[Dict]]:
-        """
-        Atualiza a potência média de um dispositivo IoT.
-        """
         return api_impl.api_set_device_average_load(
             graph=self.graph,
             index=self.index,
@@ -314,9 +283,6 @@ class PowerGridBackend:
         name: str = "Novo Dispositivo",
         avg_power: Optional[float] = None,
     ) -> Dict[str, List[Dict]]:
-        """
-        Adiciona um dispositivo a um nó consumidor.
-        """
         return api_impl.api_add_device(
             graph=self.graph,
             index=self.index,
@@ -333,9 +299,6 @@ class PowerGridBackend:
         node_id: str,
         device_id: str,
     ) -> Dict[str, List[Dict]]:
-        """
-        Remove um dispositivo de um nó consumidor.
-        """
         return api_impl.api_remove_device(
             graph=self.graph,
             index=self.index,

@@ -17,10 +17,6 @@ class TestPowerGridFacade(unittest.TestCase):
     def setUpClass(cls):
         # Initialize Facade using existing files or a config
         print("Initializing PowerGridBackend...")
-        # Since we are running tests, we might want to use a fresh config to ensure graph exists
-        # Or rely on defaults if the files exist.
-        # But to be safe and avoid "file not found" or "TypeError" seen before:
-        # We will pass a config object (not kwargs) because __init__ accepts (config_or_path, edges_path)
 
         cfg = SimulationConfig(
             random_seed=42,
@@ -55,8 +51,16 @@ class TestPowerGridFacade(unittest.TestCase):
         print("Running test_02_add_node_sequence")
         snapshot = self.backend.get_tree_snapshot()
         tree = snapshot["tree"]
-        parent = next((n for n in tree if n["node_type"] == "DISTRIBUTION_SUBSTATION"), None)
-        self.assertIsNotNone(parent, "No DS found")
+
+        # Find any node to be a parent - use raw string "DISTRIBUTION_SUBSTATION" or translated "Subestação de Distribuição"
+        # Since we localized the API, we need to check translated names!
+        parent = next((n for n in tree if n["node_type"] == "Subestação de Distribuição"), None)
+
+        # Fallback if translation not active in this environment (unlikely but safe)
+        if not parent:
+             parent = next((n for n in tree if n["node_type"] == "DISTRIBUTION_SUBSTATION"), None)
+
+        self.assertIsNotNone(parent, "No DS found (checked both English and PT-BR names)")
 
         new_id = f"TEST_C_{uuid.uuid4().hex[:4]}"
         new_node = Node(
@@ -83,15 +87,20 @@ class TestPowerGridFacade(unittest.TestCase):
         tree_ids = [n["id"] for n in result["tree"]]
         self.assertIn(new_id, tree_ids)
 
-        self.__class__.test_node_id = new_id
-        self.__class__.parent_id = parent["id"]
+        # Store for next tests using class attributes
+        TestPowerGridFacade.test_node_id = new_id
+        TestPowerGridFacade.parent_id = parent["id"]
 
     def test_03_device_management(self):
         """Test adding devices and verifying load calculation/propagation."""
         print("Running test_03_device_management")
+        # Ensure dependency on previous test
+        if not hasattr(self, 'test_node_id'):
+            self.skipTest("Dependent on test_02_add_node_sequence")
+
         node_id = self.test_node_id
 
-        # Add TV (0.195 kW)
+        # Add TV (0.095 kW) - Updated from 0.195
         res = self.backend.add_device(
             node_id=node_id,
             device_type=DeviceType.TV,
@@ -103,28 +112,37 @@ class TestPowerGridFacade(unittest.TestCase):
         self.assertTrue(any("Carga do consumidor" in log for log in logs))
 
         node = next(n for n in res["tree"] if n["id"] == node_id)
-        self.assertAlmostEqual(node["current_load"], 0.195, places=3)
+        # Using 0.095 from new catalog
+        self.assertAlmostEqual(node["current_load"], 0.095, places=3)
 
-        # Add Fridge (0.1 kW)
+        # Add Fridge (0.200 kW) - Updated from 0.1
         res = self.backend.add_device(
             node_id=node_id,
             device_type=DeviceType.FRIDGE,
             name="TestFridge"
         )
         node = next(n for n in res["tree"] if n["id"] == node_id)
+        # 0.095 + 0.200 = 0.295
         self.assertAlmostEqual(node["current_load"], 0.295, places=3)
 
         devices = res["devices"][node_id]
-        self.__class__.device_id = devices[0]["id"]
+        TestPowerGridFacade.device_id = devices[0]["id"]
 
     def test_04_routing_changes(self):
         """Test changing parent and verifying logs."""
         print("Running test_04_routing_changes")
+        if not hasattr(self, 'test_node_id'):
+            self.skipTest("Dependent on test_02_add_node_sequence")
+
         child_id = self.test_node_id
         current_parent = self.parent_id
 
         snapshot = self.backend.get_tree_snapshot()
-        possible_parents = [n for n in snapshot["tree"] if n["node_type"] == "DISTRIBUTION_SUBSTATION" and n["id"] != current_parent]
+
+        # Search for parent using translated or raw name
+        possible_parents = [n for n in snapshot["tree"]
+                            if (n["node_type"] == "Subestação de Distribuição" or n["node_type"] == "DISTRIBUTION_SUBSTATION")
+                            and n["id"] != current_parent]
 
         if not possible_parents:
             print("Skipping routing change test (no alternative parent)")
@@ -145,6 +163,8 @@ class TestPowerGridFacade(unittest.TestCase):
     def test_05_capacity_overload(self):
         """Test capacity setting and overload detection logs."""
         print("Running test_05_capacity_overload")
+        if not hasattr(self, 'test_node_id'):
+            self.skipTest("Dependent on test_02_add_node_sequence")
 
         # Overload the CURRENT PARENT (DS), not the consumer
         node_id = self.test_node_id
@@ -158,8 +178,6 @@ class TestPowerGridFacade(unittest.TestCase):
         print("Logs:", logs)
 
         self.assertTrue(any("ALERTA" in log for log in logs), f"Missing overload alert: {logs}")
-        # Expect shedding if overload persists
-        # self.assertTrue(any("Corte de carga" in log for log in logs))
 
         node = next(n for n in res["tree"] if n["id"] == target_id)
         # After shedding, it should NOT be OVERLOADED (unless shedding failed)
@@ -168,6 +186,9 @@ class TestPowerGridFacade(unittest.TestCase):
     def test_06_cleanup(self):
         """Test removing device and node."""
         print("Running test_06_cleanup")
+        if not hasattr(self, 'test_node_id') or not hasattr(self, 'device_id'):
+            self.skipTest("Dependent on previous tests")
+
         node_id = self.test_node_id
         device_id = self.device_id
 
@@ -178,14 +199,7 @@ class TestPowerGridFacade(unittest.TestCase):
         self.assertTrue(any("removido do consumidor" in log for log in logs))
 
         node = next(n for n in res["tree"] if n["id"] == node_id)
-        # Check load reduced (0.295 - 0.195 (TV) = 0.1)
-        # Note: we assume the FIRST device was TV.
-        # Let's check which one we removed.
-        # In test_03, we stored devices[0]["id"].
-        # Devices list order depends on implementation.
-        # Assuming FIFO.
-
-        # Actually, let's just check load < 0.295
+        # Check load reduced
         self.assertLess(node["current_load"], 0.295)
 
         # Remove node

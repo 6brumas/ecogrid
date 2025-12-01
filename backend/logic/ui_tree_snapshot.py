@@ -11,39 +11,7 @@ from physical.device_model import IoTDevice
 def _compute_status(node: Node, unsupplied_ids: Set[str]) -> str:
     """
     Calcula o status lógico de um nó para exibição na árvore de UI.
-
-    Regras:
-
-        - Se o nó for do tipo CONSUMER_POINT e estiver presente em
-          `unsupplied_ids`, o status é "UNSUPPLIED", independentemente
-          de capacidade ou carga.
-
-        - Se `capacity` for None ou `current_load` for None, o status é
-          "NORMAL" (sem informação suficiente para avaliar nível de
-          carregamento).
-
-        - Caso contrário, utilizamos a razão:
-
-                ratio = current_load / capacity
-
-          com os limiares:
-
-                ratio < 0.8      -> "NORMAL"
-                0.8 <= ratio <= 1 -> "WARNING"
-                ratio > 1        -> "OVERLOADED"
-
-    Parâmetros:
-        node:
-            Nó físico da rede.
-        unsupplied_ids:
-            Conjunto de ids de nós consumidores considerados sem
-            suprimento adequado.
-
-    Retorno:
-        String com o status: "NORMAL", "WARNING", "OVERLOADED"
-        ou "UNSUPPLIED".
     """
-    # Caso especial: consumidor marcado como não suprido.
     if node.node_type == NodeType.CONSUMER_POINT and node.id in unsupplied_ids:
         return "UNSUPPLIED"
 
@@ -54,12 +22,9 @@ def _compute_status(node: Node, unsupplied_ids: Set[str]) -> str:
         capacity = float(node.capacity)
         load = float(node.current_load)
         if capacity <= 0.0:
-            # Capacidade não positiva não é fisicamente razoável;
-            # tratamos como caso normal sem avaliação de ratio.
             return "NORMAL"
         ratio = load / capacity
     except (TypeError, ValueError, ZeroDivisionError):
-        # Em qualquer problema de conversão, tratamos como NORMAL.
         return "NORMAL"
 
     if ratio < 0.8:
@@ -69,6 +34,46 @@ def _compute_status(node: Node, unsupplied_ids: Set[str]) -> str:
     return "OVERLOADED"
 
 
+def _translate_node_type(node_type: NodeType) -> str:
+    """
+    Traduz o tipo de nó para Português do Brasil.
+    GENERATION_PLANT -> "Usina Geradora"
+    TRANSMISSION_SUBSTATION -> "Subestação de Transmissão"
+    DISTRIBUTION_SUBSTATION -> "Subestação de Distribuição"
+    CONSUMER_POINT -> "Consumidor"
+    """
+    mapping = {
+        NodeType.GENERATION_PLANT: "Usina Geradora",
+        NodeType.TRANSMISSION_SUBSTATION: "Subestação de Transmissão",
+        NodeType.DISTRIBUTION_SUBSTATION: "Subestação de Distribuição",
+        NodeType.CONSUMER_POINT: "Consumidor",
+    }
+    return mapping.get(node_type, node_type.name)
+
+
+def _determine_network_type(capacity: Optional[float]) -> str:
+    """
+    Determina o tipo de rede com base na capacidade (regra de negócio).
+    Se capacidade <= 13.0 -> "Monofásica"
+    Se capacidade > 13.0 -> "Trifásica"
+    Caso None -> "Desconhecido" (ou padrão)
+    """
+    if capacity is None:
+        return "Desconhecido"
+
+    # Tolerância de ponto flutuante, considerando 13.0 exato
+    if capacity <= 13.001:
+        return "Monofásica"
+    return "Trifásica"
+
+
+def _round_val(val: Optional[float]) -> Optional[float]:
+    """Arredonda para 3 casas decimais."""
+    if val is None:
+        return None
+    return round(val, 3)
+
+
 def _build_tree_entry(
     node: Node,
     parent_id: Optional[str],
@@ -76,43 +81,27 @@ def _build_tree_entry(
 ) -> Dict:
     """
     Constrói a entrada plana (flat) de um nó na árvore de UI.
-
-    Campos retornados:
-
-        - id:
-            Identificador do nó.
-        - parent_id:
-            Identificador do pai lógico na árvore B+. Pode ser None
-            para raízes (por exemplo, usinas).
-        - node_type:
-            Tipo de nó (string com o nome do enum NodeType).
-        - position_x, position_y:
-            Coordenadas cartesianas na área de simulação.
-        - cluster_id:
-            Identificador do cluster lógico ao qual o nó pertence,
-            quando aplicável (caso contrário, None).
-        - nominal_voltage:
-            Tensão típica associada ao nó (pode ser None se não
-            atribuída).
-        - capacity:
-            Capacidade máxima de carga do nó (pode ser None).
-        - current_load:
-            Carga agregada atual do nó (pode ser None).
-        - status:
-            String com o status lógico ("NORMAL", "WARNING",
-            "OVERLOADED" ou "UNSUPPLIED").
+    Aplica traduções e arredondamentos.
     """
+    # Tradução do tipo de nó
+    node_type_translated = _translate_node_type(node.node_type)
+
+    # Determinação do tipo de rede (apenas se fizer sentido, mas a regra diz para injetar)
+    # A regra de negócio se aplica principalmente a Consumidores, mas injetamos em todos se tiver capacidade
+    network_type = _determine_network_type(node.capacity)
+
     return {
         "id": node.id,
         "parent_id": parent_id,
-        "node_type": node.node_type.name,
-        "position_x": node.position_x,
-        "position_y": node.position_y,
+        "node_type": node_type_translated,
+        "position_x": _round_val(node.position_x),
+        "position_y": _round_val(node.position_y),
         "cluster_id": node.cluster_id,
-        "nominal_voltage": node.nominal_voltage,
-        "capacity": node.capacity,
-        "current_load": node.current_load,
+        "nominal_voltage": _round_val(node.nominal_voltage),
+        "capacity": _round_val(node.capacity),
+        "current_load": _round_val(node.current_load),
         "status": _compute_status(node, unsupplied_ids),
+        "network_type": network_type,
     }
 
 
@@ -121,9 +110,6 @@ def _serialize_devices(
 ) -> Dict[str, List[Dict]]:
     """
     Serializa os dispositivos IoT para formato JSON.
-
-    Retorna:
-        Dicionário node_id -> lista de dicts de dispositivos.
     """
     serialized: Dict[str, List[Dict]] = {}
     for node_id, devices in devices_by_node.items():
@@ -136,8 +122,8 @@ def _serialize_devices(
                 "id": dev.id,
                 "name": dev.name,
                 "device_type": dev.device_type.name,
-                "avg_power": dev.avg_power,
-                "current_power": dev.current_power,
+                "avg_power": _round_val(dev.avg_power),
+                "current_power": _round_val(dev.current_power),
             })
     return serialized
 
@@ -150,59 +136,7 @@ def build_full_ui_snapshot(
     logs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Gera o snapshot completo da árvore lógica para o front-end, em formato
-    plano (flat) e em ordem de pré-ordem da árvore B+.
-
-    O resultado segue exatamente o contrato combinado com o front:
-
-        {
-          "tree": [...],
-          "devices": { ... },
-          "logs": [...]
-        }
-
-    onde:
-
-        - "tree" é uma lista de nós da árvore lógica, em pré-ordem,
-          cada um com os campos:
-
-              id, parent_id, node_type,
-              position_x, position_y,
-              cluster_id, nominal_voltage,
-              capacity, current_load, status
-
-        - "devices" é um dicionário opcional que mapeia node_id para
-          uma lista de dispositivos conectados.
-
-        - "logs" contém mensagens descritivas sobre operações recentes.
-
-    Estratégia de varredura:
-
-        - A ordem é definida pelo índice lógico (`BPlusIndex`), usando
-          um percurso em pré-ordem (raiz -> filhos em profundidade).
-        - Para cada id retornado por `index.iter_preorder()`, buscamos
-          o nó correspondente no grafo físico; se o nó não existir,
-          ele é ignorado.
-        - O campo `parent_id` é obtido via `index.get_parent(node_id)`.
-
-    Parâmetros:
-        graph:
-            Grafo físico da rede.
-        index:
-            Índice B+ que armazena as relações pai-filho.
-        unsupplied_ids:
-            Conjunto de ids de nós consumidores marcados como sem
-            suprimento adequado (impacta o campo "status").
-        devices_by_node:
-            Dicionário opcional mapeando node_id -> lista de IoTDevice.
-        logs:
-            Lista opcional de mensagens de log.
-
-    Retorno:
-        Dicionário com as chaves:
-            - "tree": lista de nós da árvore de UI.
-            - "devices": dicionário de dispositivos (ou {}).
-            - "logs": lista de mensagens de log.
+    Gera o snapshot completo da árvore lógica para o front-end.
     """
     tree_entries: List[Dict] = []
 
@@ -210,8 +144,6 @@ def build_full_ui_snapshot(
     for node_id in index.iter_preorder():
         node: Optional[Node] = graph.get_node(node_id)
         if node is None:
-            # Nó pode ter sido removido do grafo físico, mas ainda
-            # constar no índice; ignoramos.
             continue
 
         parent_id = index.get_parent(node_id)
@@ -226,7 +158,6 @@ def build_full_ui_snapshot(
     if devices_by_node:
         devices_data = _serialize_devices(devices_by_node)
 
-    # Estrutura final esperada pelo front-end.
     return {
         "tree": tree_entries,
         "devices": devices_data,

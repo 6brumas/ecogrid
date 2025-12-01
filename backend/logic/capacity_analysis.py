@@ -7,8 +7,11 @@ from logic.bplus_index import BPlusIndex
 
 def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
     """
-    Inicializa a capacidade dos nós baseado na topologia.
-    Regra: Node.capacity = max(1.0, len(unique_consumers_in_subtree) * 1.0)
+    Inicializa a capacidade dos nós (Subestações e Usinas) baseado na topologia.
+    Regra: Node.capacity = max(1.0, len(unique_consumers_in_subtree) * 1.5)
+
+    NOTA: Nós do tipo CONSUMER_POINT são ignorados nesta função, pois sua capacidade
+    é definida por regras específicas de negócio (13kW/25kW) com base nos dispositivos instalados.
     """
 
     # Map node_id -> Set of consumer_ids
@@ -37,9 +40,9 @@ def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
 
         consumers_in_subtree[node_id] = unique_consumers
 
-        # Calculate capacity
-        count = len(unique_consumers)
-        # Factor 1.5x for emergency buffer
-        new_capacity = max(1.0, float(count) * 1.5)
-
-        node.capacity = new_capacity
+        # Calculate capacity ONLY for non-consumers
+        if node.node_type != NodeType.CONSUMER_POINT:
+            count = len(unique_consumers)
+            # Factor 1.5x for emergency buffer
+            new_capacity = max(1.0, float(count) * 1.5)
+            node.capacity = new_capacity
