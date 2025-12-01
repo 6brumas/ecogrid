@@ -8,30 +8,79 @@ from logic.bplus_index import BPlusIndex
 from physical.device_model import IoTDevice
 
 
-def _compute_status(node: Node, unsupplied_ids: Set[str]) -> str:
+def _compute_status(node: Node, unsupplied_ids: Set[str]) -> Optional[str]:
     """
     Calcula o status lógico de um nó para exibição na árvore de UI.
+    Para Consumidores, retorna None (sem status).
+    Para outros, retorna o status traduzido.
     """
-    if node.node_type == NodeType.CONSUMER_POINT and node.id in unsupplied_ids:
-        return "UNSUPPLIED"
+    # Consumidores: Sem status (None)
+    if node.node_type == NodeType.CONSUMER_POINT:
+        return None
+
+    # Se estiver marcado como não suprido (pode acontecer para subestações se implementado)
+    # Mas unsupplied_ids é tipicamente de consumidores.
+    # Se uma subestação estiver isolada, ela pode ser considerada "Sem Energia".
+    # A lógica original tratava unsupplied_ids apenas para Consumers.
+    # Vamos manter a lógica original para outros tipos se estiverem na lista (defensiva).
+    if node.id in unsupplied_ids:
+        return "Sem Energia"
 
     if node.capacity is None or node.current_load is None:
-        return "NORMAL"
+        return "Normal"
 
     try:
         capacity = float(node.capacity)
         load = float(node.current_load)
         if capacity <= 0.0:
-            return "NORMAL"
+            return "Normal"
         ratio = load / capacity
     except (TypeError, ValueError, ZeroDivisionError):
-        return "NORMAL"
+        return "Normal"
 
     if ratio < 0.8:
-        return "NORMAL"
+        return "Normal"
     if ratio <= 1.0:
-        return "WARNING"
-    return "OVERLOADED"
+        return "Alerta"
+    return "Sobrecarga"
+
+
+def _translate_node_type(node_type: NodeType) -> str:
+    """
+    Traduz o tipo de nó para Português do Brasil.
+    GENERATION_PLANT -> "Usina Geradora"
+    TRANSMISSION_SUBSTATION -> "Subestação de Transmissão"
+    DISTRIBUTION_SUBSTATION -> "Subestação de Distribuição"
+    CONSUMER_POINT -> "Consumidor"
+    """
+    mapping = {
+        NodeType.GENERATION_PLANT: "Usina Geradora",
+        NodeType.TRANSMISSION_SUBSTATION: "Subestação de Transmissão",
+        NodeType.DISTRIBUTION_SUBSTATION: "Subestação de Distribuição",
+        NodeType.CONSUMER_POINT: "Consumidor",
+    }
+    return mapping.get(node_type, node_type.name)
+
+
+def _determine_network_type(capacity: Optional[float]) -> Optional[str]:
+    """
+    Determina o tipo de rede com base na capacidade (regra de negócio).
+    Se capacity for None, retorna None (não exibe).
+    """
+    if capacity is None:
+        return None
+
+    # Tolerância de ponto flutuante, considerando 13.0 exato
+    if capacity <= 13.001:
+        return "Monofásica"
+    return "Trifásica"
+
+
+def _round_val(val: Optional[float]) -> Optional[float]:
+    """Arredonda para 3 casas decimais."""
+    if val is None:
+        return None
+    return round(val, 3)
 
 
 def _translate_node_type(node_type: NodeType) -> str:
@@ -86,8 +135,7 @@ def _build_tree_entry(
     # Tradução do tipo de nó
     node_type_translated = _translate_node_type(node.node_type)
 
-    # Determinação do tipo de rede (apenas se fizer sentido, mas a regra diz para injetar)
-    # A regra de negócio se aplica principalmente a Consumidores, mas injetamos em todos se tiver capacidade
+    # Determinação do tipo de rede
     network_type = _determine_network_type(node.capacity)
 
     return {

@@ -80,7 +80,7 @@ class PowerGridBackend:
         # 2. Constrói estado lógico
         _, self.index, self.service = build_logical_state(self.graph)
 
-        # 3. Inicializa dispositivos e aplica regras de dimensionamento para CONSUMIDORES
+        # 3. Inicializa dispositivos
         self._init_default_devices()
 
         # 4. Inicializa capacidades de SUBESTAÇÕES baseado na topologia (1.5x)
@@ -93,7 +93,7 @@ class PowerGridBackend:
         Inicializa o estado de simulação de dispositivos com valores padrão
         para todos os consumidores do grafo, aplicando regras de negócio:
         - Seleção aleatória de 3 a 10 dispositivos.
-        - Dimensionamento de capacidade (13kW mono vs 25kW trifásica).
+        - REMOVIDO: Dimensionamento de capacidade para consumidores (agora None).
         """
         node_device_types = {}
         all_device_types = list(DeviceType)
@@ -105,20 +105,8 @@ class PowerGridBackend:
                 selected_types = [random.choice(all_device_types) for _ in range(num_devices)]
                 node_device_types[node.id] = selected_types
 
-                # Regra de Negócio (Dimensionamento)
-                sum_load = 0.0
-                for dtype in selected_types:
-                    template = get_device_template(dtype)
-                    sum_load += template.avg_power
-
-                # Se Soma_Carga <= 13.0 kW -> Capacidade = 13.000 kW (Monofásica)
-                # Se Soma_Carga > 13.0 kW -> Capacidade = 25.000 kW (Trifásica)
-                if sum_load <= 13.0:
-                    node.capacity = 13.0
-                else:
-                    node.capacity = 25.0
-
-                # Note: Network Type (Monofásica/Trifásica) is derived in ui_tree_snapshot from capacity.
+                # Regra antiga removida: Capacidade é None para consumidores
+                node.capacity = None
 
         self.device_state = build_device_simulation_state(
             graph=self.graph,

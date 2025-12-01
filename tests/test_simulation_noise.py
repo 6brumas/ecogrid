@@ -33,20 +33,18 @@ class TestSimulationNoise(unittest.TestCase):
         """Verify capacity rules."""
         snap = self.backend.get_tree_snapshot()
 
-        # Check a consumer node (Should be 13.0 or 25.0)
+        # Check a consumer node (Should be None)
         consumer = next((n for n in snap["tree"] if n["node_type"] == "Consumidor"), None)
         if consumer:
             print(f"Consumer {consumer['id']} Capacity: {consumer['capacity']}")
-            self.assertIn(consumer["capacity"], [13.0, 25.0])
+            self.assertIsNone(consumer.get("capacity"))
 
-        # Check a DS (Should be 8 * (children + 1))
-        # Use translated name "Subestação de Distribuição"
+        # Check a DS (Should be 13 * (children + 1))
         ds = next((n for n in snap["tree"] if n["node_type"] == "Subestação de Distribuição"), None)
         if ds:
-            # We need to count children to verify exact math, or just check it's > 8
             print(f"DS {ds['id']} Capacity: {ds['capacity']}")
-            self.assertTrue(ds['capacity'] >= 8.0)
-            self.assertTrue(ds['capacity'] % 8.0 == 0.0)
+            self.assertTrue(ds['capacity'] >= 13.0)
+            self.assertTrue(ds['capacity'] % 13.0 == 0.0)
 
     def test_noise_fluctuation(self):
         """Verify device power changes with time (Manual inspection of state)."""

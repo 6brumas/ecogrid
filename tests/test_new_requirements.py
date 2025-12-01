@@ -17,7 +17,6 @@ class TestNewRequirements(unittest.TestCase):
 
     def test_catalog_expansion(self):
         """Verify that all new device types are present and have correct power."""
-        # Test a few samples
         tv = get_device_template(DeviceType.TV)
         self.assertAlmostEqual(tv.avg_power, 0.095)
         self.assertEqual(tv.default_name, "TV")
@@ -30,8 +29,7 @@ class TestNewRequirements(unittest.TestCase):
         self.assertAlmostEqual(generic.avg_power, 0.100)
 
     def test_initialization_rules(self):
-        """Verify random device population and capacity sizing rules."""
-        # Setup a minimal config
+        """Verify random device population and CAPACITY REMOVAL rules."""
         cfg = SimulationConfig(
             random_seed=42,
             num_clusters=1,
@@ -41,8 +39,6 @@ class TestNewRequirements(unittest.TestCase):
             max_mv_segment_length=800.0,
             max_lv_segment_length=250.0
         )
-        # We need to ensure we have consumers. Default config usually creates some.
-        # But random seed 42 should be deterministic.
         backend = PowerGridBackend(cfg)
 
         consumers = [n for n in backend.graph.nodes.values() if n.node_type == NodeType.CONSUMER_POINT]
@@ -53,14 +49,8 @@ class TestNewRequirements(unittest.TestCase):
             devices = backend.device_state.devices_by_node.get(node.id, [])
             self.assertTrue(3 <= len(devices) <= 10, f"Consumer {node.id} has {len(devices)} devices, expected 3-10")
 
-            # Check capacity rule
-            sum_load = sum([d.avg_power for d in devices])
-
-            # Tolerância para floats
-            if sum_load <= 13.0001:
-                self.assertEqual(node.capacity, 13.0, f"Node {node.id} load {sum_load} <= 13, expected capacity 13.0")
-            else:
-                self.assertEqual(node.capacity, 25.0, f"Node {node.id} load {sum_load} > 13, expected capacity 25.0")
+            # Check capacity rule: Consumers should have None capacity
+            self.assertIsNone(node.capacity, f"Consumer {node.id} should have None capacity")
 
     def test_api_localization_and_formatting(self):
         """Verify translation, network type injection and rounding."""
@@ -72,7 +62,7 @@ class TestNewRequirements(unittest.TestCase):
 
         # Network Type
         self.assertEqual(_determine_network_type(13.0), "Monofásica")
-        self.assertEqual(_determine_network_type(10.0), "Monofásica")
+        self.assertEqual(_determine_network_type(None), None)
         self.assertEqual(_determine_network_type(13.1), "Trifásica")
         self.assertEqual(_determine_network_type(25.0), "Trifásica")
 
@@ -91,21 +81,12 @@ class TestNewRequirements(unittest.TestCase):
         self.assertIsNotNone(consumer_entry)
 
         # Verify keys and values
-        self.assertIn("network_type", consumer_entry)
-        self.assertIn(consumer_entry["network_type"], ["Monofásica", "Trifásica"])
+        self.assertIsNone(consumer_entry.get("network_type"), "Network type should be None for consumers (no capacity)")
+        self.assertIsNone(consumer_entry.get("capacity"), "Capacity should be None")
+        self.assertIsNone(consumer_entry.get("status"), "Status should be None for consumers")
 
-        # Verify rounding in float fields
-        self.assertIsInstance(consumer_entry["capacity"], float)
-        # Checking if it "looks" rounded is hard with floats, but we used round(val, 3)
-        # We can check string representation length or equality
-
-        # Verify capacity matches network type logic in the output
-        cap = consumer_entry["capacity"]
-        net = consumer_entry["network_type"]
-        if cap <= 13.0:
-            self.assertEqual(net, "Monofásica")
-        else:
-            self.assertEqual(net, "Trifásica")
+        # Verify rounding in float fields (current_load is present)
+        self.assertIsInstance(consumer_entry["current_load"], float)
 
 if __name__ == "__main__":
     unittest.main()

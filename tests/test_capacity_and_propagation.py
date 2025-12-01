@@ -16,8 +16,8 @@ class TestCapacityAndPropagation(unittest.TestCase):
     def test_capacity_analysis(self):
         """
         Verify that:
-        1. Consumers have capacity 13.0 or 25.0 based on devices.
-        2. Substations have capacity = 8.0 * (num_children + 1).
+        1. Consumers have NO capacity.
+        2. Substations have capacity = 13.0 * (num_children + 1).
         """
         cfg = SimulationConfig(
             random_seed=123,
@@ -37,7 +37,7 @@ class TestCapacityAndPropagation(unittest.TestCase):
         self.assertTrue(len(consumers) > 0)
 
         for c in consumers:
-            self.assertIn(c.capacity, [13.0, 25.0])
+            self.assertIsNone(c.capacity)
 
         # Check Substations
         substations = [n for n in graph.nodes.values() if n.node_type == NodeType.DISTRIBUTION_SUBSTATION]
@@ -47,7 +47,7 @@ class TestCapacityAndPropagation(unittest.TestCase):
             children = list(index.get_children(s.id))
             num_children = len(children)
 
-            expected_capacity = 8.0 * (num_children + 1)
+            expected_capacity = 13.0 * (num_children + 1)
 
             self.assertAlmostEqual(s.capacity, expected_capacity, places=3,
                                    msg=f"Substation {s.id} capacity mismatch. Children: {num_children}")
