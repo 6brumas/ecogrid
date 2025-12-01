@@ -83,6 +83,46 @@ def _round_val(val: Optional[float]) -> Optional[float]:
     return round(val, 3)
 
 
+def _translate_node_type(node_type: NodeType) -> str:
+    """
+    Traduz o tipo de nó para Português do Brasil.
+    GENERATION_PLANT -> "Usina Geradora"
+    TRANSMISSION_SUBSTATION -> "Subestação de Transmissão"
+    DISTRIBUTION_SUBSTATION -> "Subestação de Distribuição"
+    CONSUMER_POINT -> "Consumidor"
+    """
+    mapping = {
+        NodeType.GENERATION_PLANT: "Usina Geradora",
+        NodeType.TRANSMISSION_SUBSTATION: "Subestação de Transmissão",
+        NodeType.DISTRIBUTION_SUBSTATION: "Subestação de Distribuição",
+        NodeType.CONSUMER_POINT: "Consumidor",
+    }
+    return mapping.get(node_type, node_type.name)
+
+
+def _determine_network_type(capacity: Optional[float]) -> str:
+    """
+    Determina o tipo de rede com base na capacidade (regra de negócio).
+    Se capacidade <= 13.0 -> "Monofásica"
+    Se capacidade > 13.0 -> "Trifásica"
+    Caso None -> "Desconhecido" (ou padrão)
+    """
+    if capacity is None:
+        return "Desconhecido"
+
+    # Tolerância de ponto flutuante, considerando 13.0 exato
+    if capacity <= 13.001:
+        return "Monofásica"
+    return "Trifásica"
+
+
+def _round_val(val: Optional[float]) -> Optional[float]:
+    """Arredonda para 3 casas decimais."""
+    if val is None:
+        return None
+    return round(val, 3)
+
+
 def _build_tree_entry(
     node: Node,
     parent_id: Optional[str],
