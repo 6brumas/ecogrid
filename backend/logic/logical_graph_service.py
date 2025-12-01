@@ -145,20 +145,32 @@ class LogicalGraphService:
 
     def retry_unsupplied_routing(self) -> None:
         """
-        Tenta encontrar pai para consumidores sem fornecedor.
+        Tenta encontrar pai para consumidores sem fornecedor e para
+        subestações isoladas (raízes que não são usinas).
         """
-        # Cria cópia para iterar com segurança
-        unsupplied = list(self.unsupplied_consumers)
-
         count = 0
+
+        # 1. Tenta reconectar consumidores explicitamente não supridos
+        unsupplied = list(self.unsupplied_consumers)
         for consumer_id in unsupplied:
-            # Tenta reconectar
             result = self.change_parent_with_routing(child_id=consumer_id)
             if result.success:
                 count += 1
 
+        # 2. Tenta reconectar subestações isoladas (que se tornaram raízes por falta de pai)
+        #    Identificamos como raízes que NÃO são usinas (GENERATION_PLANT).
+        current_roots = list(self.index.get_roots())
+        for root_id in current_roots:
+            node = self.graph.get_node(root_id)
+            if node and node.node_type != NodeType.GENERATION_PLANT:
+                # Tenta rotear esta subestação órfã para um novo pai (ex: outra TS ou Usina)
+                result = self.change_parent_with_routing(child_id=root_id)
+                if result.success:
+                    count += 1
+                    # Nota: se essa subestação reconectar, seus filhos também "voltam" para a rede.
+
         if count > 0:
-            self.log(f"Recuperação de energia: {count} nós foram reconectados à rede com sucesso.")
+            self.log(f"Recuperação estrutural: {count} nós (consumidores ou subestações) foram reconectados à rede com sucesso.")
 
     def handle_overload(self, node_id: str) -> None:
         """
@@ -437,7 +449,8 @@ class LogicalGraphService:
             if child.node_type == NodeType.CONSUMER_POINT:
                 self.unsupplied_consumers.add(child_id)
 
-            print(f"[DEBUG] Failed to find parent via routing for {child_id}. Graph size: {len(self.graph.nodes)}")
+            # (DEBUG removido para evitar poluição, ou mantido se útil)
+            # print(f"[DEBUG] Failed to find parent via routing for {child_id}...")
 
             return ChangeParentResult(
                 success=False,

@@ -9,14 +9,29 @@ sys.path.append(os.path.join(os.getcwd(), 'backend'))
 from api.backend_facade import PowerGridBackend
 from core.models import Node, Edge, NodeType, EdgeType
 from physical.device_model import DeviceType
+from config import SimulationConfig
 
 class TestPowerGridFacade(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # Initialize Facade using existing files
+        # Initialize Facade using existing files or a config
         print("Initializing PowerGridBackend...")
-        cls.backend = PowerGridBackend(nodes_path="backend/out/nodes", edges_path="backend/out/edges")
+        # Since we are running tests, we might want to use a fresh config to ensure graph exists
+        # Or rely on defaults if the files exist.
+        # But to be safe and avoid "file not found" or "TypeError" seen before:
+        # We will pass a config object (not kwargs) because __init__ accepts (config_or_path, edges_path)
+
+        cfg = SimulationConfig(
+            random_seed=42,
+            num_clusters=1,
+            num_generation_plants=1,
+            num_transmission_substations=2,
+            max_transmission_segment_length=1500.0,
+            max_mv_segment_length=800.0,
+            max_lv_segment_length=250.0
+        )
+        cls.backend = PowerGridBackend(cfg)
 
     def test_01_initialization(self):
         """Test if backend initializes and logs startup message."""

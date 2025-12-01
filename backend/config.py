@@ -95,10 +95,10 @@ class SimulationConfig:
     distribution_nominal_voltage: float | None = 13.8e3  # 13,8 kV
     consumer_nominal_voltage: float | None = 220.0       # 220 V
 
-    # Limites de comprimento de segmentos
-    max_transmission_segment_length: float = 500.0
-    max_mv_segment_length: float = 300.0
-    max_lv_segment_length: float = 80.0
+    # Limites de comprimento de segmentos (Aumentados para garantir conectividade)
+    max_transmission_segment_length: float = 1500.0
+    max_mv_segment_length: float = 800.0
+    max_lv_segment_length: float = 250.0
 
 
 __all__: Sequence[str] = ["SimulationConfig"]
