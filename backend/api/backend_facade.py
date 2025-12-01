@@ -1,17 +1,29 @@
 from __future__ import annotations
 
-from typing import Dict, List, MutableMapping, Sequence, Optional
+from typing import Dict, List, MutableMapping, Sequence, Optional, Union
 from pathlib import Path
+import os
+import time
+import random
 
 from core.graph_core import PowerGridGraph
-from core.models import Node, Edge
+from core.models import Node, Edge, NodeType
 from logic.bplus_index import BPlusIndex
 from logic.logical_graph_service import LogicalGraphService
-from physical.device_model import IoTDevice
+from physical.device_model import DeviceType, IoTDevice
+from physical.device_simulation import (
+    DeviceSimulationState,
+    build_device_simulation_state,
+    update_devices_and_nodes_loads
+)
+from physical.device_catalog import get_device_template
 
 # Import modules for initialization
 from io_utils.loader import load_graph_from_files
 from logic.graph_initialization import build_logical_state
+from logic.capacity_analysis import initialize_capacities
+from grid_generation import generate_grid_if_needed
+from config import SimulationConfig
 
 # Import existing functional API to delegate calls
 from api import logical_backend_api as api_impl
@@ -20,48 +32,105 @@ from api import logical_backend_api as api_impl
 class PowerGridBackend:
     """
     Fachada (Facade) Stateful para o backend de simulação de rede elétrica.
-
-    Esta classe encapsula o estado da aplicação (grafo físico, índice lógico,
-    serviço de domínio) e oferece uma interface simplificada para consumidores
-    (CLI, Web API, Testes), eliminando a necessidade de microgerenciamento
-    de dependências e inicialização.
-
-    Responsabilidades:
-        - Carregar e persistir o estado do grafo (`PowerGridGraph`).
-        - Manter a integridade do índice lógico (`BPlusIndex`).
-        - Orquestrar operações de domínio via `LogicalGraphService`.
-        - Prover métodos de alto nível que ocultam a complexidade interna.
     """
 
     def __init__(
         self,
-        nodes_path: str = "out/nodes",
+        config_or_path: Union[SimulationConfig, str] = "out/nodes",
         edges_path: str = "out/edges",
     ) -> None:
-        """
-        Inicializa o backend, carregando dados e construindo o estado lógico.
 
-        O processo de inicialização inclui:
-            1. Leitura dos arquivos CSV de nós e arestas.
-            2. Construção do grafo físico.
-            3. Hidratação da árvore lógica (B+) a partir da topologia.
+        if isinstance(config_or_path, SimulationConfig):
+            # Modo Geração Dinâmica (Testes ou Nova Simulação)
+            cfg = config_or_path
+            # Gera os arquivos usando o gerador
+            generate_grid_if_needed(cfg, force_regenerate=True)
 
-        Parâmetros:
-            nodes_path: Caminho para o arquivo CSV de nós.
-            edges_path: Caminho para o arquivo CSV de arestas.
-        """
-        self._nodes_path = nodes_path
-        self._edges_path = edges_path
+            # Ajuste de path para testes rodando da raiz
+            possible_dirs = ["backend/out", "out"]
+            found = False
+            for d in possible_dirs:
+                if os.path.exists(os.path.join(d, "nodes")):
+                    self._nodes_path = os.path.join(d, "nodes")
+                    self._edges_path = os.path.join(d, "edges")
+                    found = True
+                    break
+
+            if not found:
+                self._nodes_path = "out/nodes"
+                self._edges_path = "out/edges"
+
+        else:
+            # Modo Arquivo Existente
+            self._nodes_path = config_or_path
+            self._edges_path = edges_path
 
         # 1. Carrega grafo físico
+        if isinstance(self._nodes_path, str):
+            if not os.path.exists(self._nodes_path):
+                 if os.path.exists(os.path.join("backend", self._nodes_path)):
+                     self._nodes_path = os.path.join("backend", self._nodes_path)
+                     self._edges_path = os.path.join("backend", self._edges_path)
+
         self.graph: PowerGridGraph = load_graph_from_files(
             nodes_path=self._nodes_path,
             edges_path=self._edges_path,
         )
 
-        # 2. Constrói estado lógico (inclui hidratação via service.hydrate_from_physical)
-        # build_logical_state já retorna (graph, index, service) populados.
+        # 2. Constrói estado lógico
         _, self.index, self.service = build_logical_state(self.graph)
+
+        # 3. Inicializa dispositivos e aplica regras de dimensionamento para CONSUMIDORES
+        self._init_default_devices()
+
+        # 4. Inicializa capacidades de SUBESTAÇÕES baseado na topologia (1.5x)
+        # Nota: initialize_capacities agora ignora CONSUMER_POINT para não sobrescrever a lógica de 13/25kW
+        initialize_capacities(self.graph, self.index)
+
+
+    def _init_default_devices(self) -> None:
+        """
+        Inicializa o estado de simulação de dispositivos com valores padrão
+        para todos os consumidores do grafo, aplicando regras de negócio:
+        - Seleção aleatória de 3 a 10 dispositivos.
+        - Dimensionamento de capacidade (13kW mono vs 25kW trifásica).
+        """
+        node_device_types = {}
+        all_device_types = list(DeviceType)
+
+        for node in self.graph.nodes.values():
+            if node.node_type == NodeType.CONSUMER_POINT:
+                # Sorteia N (3 a 10) dispositivos aleatórios
+                num_devices = random.randint(3, 10)
+                selected_types = [random.choice(all_device_types) for _ in range(num_devices)]
+                node_device_types[node.id] = selected_types
+
+                # Regra de Negócio (Dimensionamento)
+                sum_load = 0.0
+                for dtype in selected_types:
+                    template = get_device_template(dtype)
+                    sum_load += template.avg_power
+
+                # Se Soma_Carga <= 13.0 kW -> Capacidade = 13.000 kW (Monofásica)
+                # Se Soma_Carga > 13.0 kW -> Capacidade = 25.000 kW (Trifásica)
+                if sum_load <= 13.0:
+                    node.capacity = 13.0
+                else:
+                    node.capacity = 25.0
+
+                # Note: Network Type (Monofásica/Trifásica) is derived in ui_tree_snapshot from capacity.
+
+        self.device_state = build_device_simulation_state(
+            graph=self.graph,
+            node_device_types=node_device_types
+        )
+
+        # Propaga a carga inicial dos dispositivos para a rede
+        for consumer_id in node_device_types.keys():
+             self.service.update_load_after_device_change(
+                consumer_id=consumer_id,
+                node_devices=self.device_state.devices_by_node
+             )
 
     # ------------------------------------------------------------------
     # Métodos de Leitura / Snapshot
@@ -72,10 +141,22 @@ class PowerGridBackend:
         Retorna o snapshot atual da árvore lógica para UI.
         Delegado para `logical_backend_api.api_get_tree_snapshot`.
         """
+        # Atualiza o estado da simulação (ruído) antes de tirar o snapshot
+        update_devices_and_nodes_loads(
+            graph=self.graph,
+            sim_state=self.device_state,
+            t_seconds=time.time(),
+            service=self.service
+        )
+
+        # Tenta reconectar nós sem fornecedor antes de retornar
+        self.service.retry_unsupplied_routing()
+
         return api_impl.api_get_tree_snapshot(
             graph=self.graph,
             index=self.index,
             service=self.service,
+            sim_state=self.device_state,
         )
 
     # ------------------------------------------------------------------
@@ -87,13 +168,11 @@ class PowerGridBackend:
         node: Node,
         edges: Sequence[Edge],
     ) -> Dict[str, List[Dict]]:
-        """
-        Adiciona um nó e conecta-o logicamente via roteamento.
-        """
         return api_impl.api_add_node_with_routing(
             graph=self.graph,
             index=self.index,
             service=self.service,
+            sim_state=self.device_state,
             node=node,
             edges=edges,
         )
@@ -103,13 +182,11 @@ class PowerGridBackend:
         node_id: str,
         remove_from_graph: bool = True,
     ) -> Dict[str, List[Dict]]:
-        """
-        Remove um nó da lógica (e opcionalmente do físico).
-        """
         return api_impl.api_remove_node(
             graph=self.graph,
             index=self.index,
             service=self.service,
+            sim_state=self.device_state,
             node_id=node_id,
             remove_from_graph=remove_from_graph,
         )
@@ -118,13 +195,11 @@ class PowerGridBackend:
         self,
         node_id: str,
     ) -> Dict[str, List[Dict]]:
-        """
-        Recalcula o pai lógico de um nó via roteamento.
-        """
         return api_impl.api_change_parent_with_routing(
             graph=self.graph,
             index=self.index,
             service=self.service,
+            sim_state=self.device_state,
             node_id=node_id,
         )
 
@@ -133,13 +208,11 @@ class PowerGridBackend:
         node_id: str,
         forced_parent_id: str,
     ) -> Dict[str, List[Dict]]:
-        """
-        Força a troca de pai para um nó específico.
-        """
         return api_impl.api_force_change_parent(
             graph=self.graph,
             index=self.index,
             service=self.service,
+            sim_state=self.device_state,
             node_id=node_id,
             forced_parent_id=forced_parent_id,
         )
@@ -153,51 +226,79 @@ class PowerGridBackend:
         node_id: str,
         new_capacity: float,
     ) -> Dict[str, List[Dict]]:
-        """
-        Define a capacidade máxima de um nó.
-        """
-        return api_impl.api_set_node_capacity(
+        result = api_impl.api_set_node_capacity(
             graph=self.graph,
             index=self.index,
             service=self.service,
+            sim_state=self.device_state,
             node_id=node_id,
             new_capacity=new_capacity,
         )
+        self.service.handle_overload(node_id)
+        return self.get_tree_snapshot()
 
     def force_overload(
         self,
         node_id: str,
         overload_percentage: float,
     ) -> Dict[str, List[Dict]]:
-        """
-        Força sobrecarga em um nó reduzindo sua capacidade.
-        """
-        return api_impl.api_force_overload(
+        api_impl.api_force_overload(
             graph=self.graph,
             index=self.index,
             service=self.service,
+            sim_state=self.device_state,
             node_id=node_id,
             overload_percentage=overload_percentage,
         )
+        self.service.handle_overload(node_id)
+        return self.get_tree_snapshot()
 
     def set_device_average_load(
         self,
-        node_devices: MutableMapping[str, List[IoTDevice]],
         consumer_id: str,
         device_id: str,
         new_avg_power: float,
         adjust_current_to_average: bool = True,
     ) -> Dict[str, List[Dict]]:
-        """
-        Atualiza a potência média de um dispositivo IoT.
-        """
         return api_impl.api_set_device_average_load(
             graph=self.graph,
             index=self.index,
             service=self.service,
-            node_devices=node_devices,
+            sim_state=self.device_state,
             consumer_id=consumer_id,
             device_id=device_id,
             new_avg_power=new_avg_power,
             adjust_current_to_average=adjust_current_to_average,
+        )
+
+    def add_device(
+        self,
+        node_id: str,
+        device_type: DeviceType,
+        name: str = "Novo Dispositivo",
+        avg_power: Optional[float] = None,
+    ) -> Dict[str, List[Dict]]:
+        return api_impl.api_add_device(
+            graph=self.graph,
+            index=self.index,
+            service=self.service,
+            sim_state=self.device_state,
+            node_id=node_id,
+            device_type=device_type,
+            name=name,
+            avg_power=avg_power,
+        )
+
+    def remove_device(
+        self,
+        node_id: str,
+        device_id: str,
+    ) -> Dict[str, List[Dict]]:
+        return api_impl.api_remove_device(
+            graph=self.graph,
+            index=self.index,
+            service=self.service,
+            sim_state=self.device_state,
+            node_id=node_id,
+            device_id=device_id,
         )
