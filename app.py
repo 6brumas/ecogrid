@@ -14,10 +14,18 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "backend"))
 from api.backend_facade import PowerGridBackend
 from core.models import Node, Edge, NodeType, EdgeType
 from backend.physical.device_model import DeviceType
+from grid_generation import generate_default_graph
+
+# Caminhos dos arquivos de grafo
+NODES_PATH = "backend/out/nodes"
+EDGES_PATH = "backend/out/edges"
+
+# Gera o grafo sempre que o aplicativo inicia
+generate_default_graph(nodes_path=NODES_PATH, edges_path=EDGES_PATH)
 
 # Inicializa o BackendFacade
 # Isso lida com o carregamento do grafo a partir de arquivos e configuração do índice/serviço
-backend = PowerGridBackend(nodes_path="backend/out/nodes", edges_path="backend/out/edges")
+backend = PowerGridBackend(nodes_path=NODES_PATH, edges_path=EDGES_PATH)
 
 # configuração do FastAPI
 app = FastAPI()
