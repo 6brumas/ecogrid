@@ -161,14 +161,23 @@ def propagate_load_upwards(
     """
     current_id = start_node_id
 
+    # Iterative implementation to avoid recursion depth limits and ensure robustness
+    # Loop continues until we reach a root (parent_id is None)
     while True:
         parent_id = index.get_parent(current_id)
+
+        # If no parent (we reached a root), stop propagation
         if parent_id is None:
             break
 
-        # Recalcula a carga do pai como soma das cargas dos filhos diretos.
+        # Check if parent exists in graph before attempting recompute
+        if graph.get_node(parent_id) is None:
+            break
+
+        # Recompute parent's load based on its children
         recompute_node_load_from_children(parent_id, graph, index)
 
+        # Move up to the parent for the next iteration
         current_id = parent_id
 
 
