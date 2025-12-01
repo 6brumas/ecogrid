@@ -3,6 +3,15 @@ const icons = {
   TRANSMISSION_SUBSTATION: "/static/icons/transmission.png",
   DISTRIBUTION_SUBSTATION: "/static/icons/distribution.png",
   CONSUMER_POINT: "/static/icons/consumer.png",
+  // Localized keys if needed, assuming backend sends localized types now?
+  // Backend sends "Usina Geradora", "Consumidor", etc.
+  // We need to map these localized strings to icons?
+  // Let's check ui_tree_snapshot.py again. It sends "node_type": "Consumidor".
+  // So we need to update this map or handle it.
+  "Usina Geradora": "/static/icons/substation.png",
+  "Subestação de Transmissão": "/static/icons/transmission.png",
+  "Subestação de Distribuição": "/static/icons/distribution.png",
+  "Consumidor": "/static/icons/consumer.png",
   default: "/static/icons/default.png",
 };
 
@@ -11,6 +20,12 @@ const statusColors = {
   WARNING: "#FFC107",
   OVERLOADED: "#F44336",
   OFFLINE: "#9E9E9E",
+  // Portuguese mapping
+  "Normal": "#4CAF50",
+  "Alerta": "#FFC107",
+  "Sobrecarga": "#F44336",
+  "Sem Energia": "#9E9E9E",
+  "Desconhecido": "#607D8B",
   unknown: "#607D8B",
 };
 
@@ -43,6 +58,34 @@ export function createSVG(fromButton) {
 }
 
 export function buildHierarchy(flatData) {
+  // Verifica se temos múltiplos nós raízes (nós com parent_id nulo)
+  const roots = flatData.filter(d => d.parent_id === null);
+
+  if (roots.length > 1) {
+    // Cria um nó raiz virtual
+    const virtualRoot = {
+      id: "virtual_root",
+      parent_id: null,
+      node_type: "default",
+      status: "Normal"
+    };
+
+    // Modifica as raízes existentes para apontarem para a raiz virtual
+    const modifiedData = flatData.map(d => {
+      if (d.parent_id === null) {
+        return { ...d, parent_id: "virtual_root" };
+      }
+      return d;
+    });
+
+    modifiedData.push(virtualRoot);
+
+    return d3
+      .stratify()
+      .id((d) => d.id)
+      .parentId((d) => d.parent_id)(modifiedData);
+  }
+
   return d3
     .stratify()
     .id((d) => d.id)
@@ -108,27 +151,6 @@ export function buildTree(root, g) {
     })
     .on("mouseout", () => tooltip.classed("hidden", true));
 
-  // barra baseada na utilization_ratio
-  // node
-  //   .append("rect")
-  //   .attr("class", "util-bar-bg")
-  //   .attr("x", -20)
-  //   .attr("y", -22)
-  //   .attr("width", 40)
-  //   .attr("height", 4)
-  //   .attr("rx", 2)
-  //   .attr("fill", "#ddd");
-
-  // node
-  //   .append("rect")
-  //   .attr("class", "util-bar-fill")
-  //   .attr("x", -20)
-  //   .attr("y", -22)
-  //   .attr("height", 4)
-  //   .attr("rx", 2)
-  //   .attr("width", (d) => 40 * (d.data.utilization_ratio ?? 0))
-  //   .attr("fill", (d) => statusColors[d.data.status] || "#fff");
-
   // retângulo de fundo do ícone com cor baseada no status
   node
     .insert("rect", "image")
@@ -159,17 +181,35 @@ function formatTooltip(obj) {
   let html = `<strong>${obj.id}</strong><br>`;
   html += `<strong>Tipo:</strong> ${obj.node_type}<br>`;
   html += `<strong>Id do Cluster:</strong> ${obj.cluster_id}<br>`;
-  html += `<strong>Status:</strong> ${obj.status}<br>`;
-  html += `<strong>Voltagem:</strong> ${obj.nominal_voltage} V<br>`;
-  html += `<strong>Capacidade:</strong> ${obj.capacity} kW<br>`;
-  html += `<strong>Carga atual:</strong> ${obj.current_load} kW<br>`;
+
+  if (obj.status) {
+      html += `<strong>Status:</strong> ${obj.status}<br>`;
+  }
+
+  // Renomeado Voltagem -> Tensão
+  if (obj.nominal_voltage) {
+      html += `<strong>Tensão:</strong> ${obj.nominal_voltage} V<br>`;
+  }
+
+  // Capacity only if present
+  if (obj.capacity !== null && obj.capacity !== undefined) {
+      html += `<strong>Capacidade:</strong> ${obj.capacity} kW<br>`;
+  }
+
+  if (obj.current_load !== null && obj.current_load !== undefined) {
+      html += `<strong>Carga atual:</strong> ${obj.current_load} kW<br>`;
+  }
+
+  if (obj.network_type) {
+      html += `<strong>Rede:</strong> ${obj.network_type}<br>`;
+  }
 
   if (Array.isArray(obj.devices) && obj.devices.length > 0) {
     html += `<br><strong>Dispositivos:</strong><br>`;
     obj.devices.forEach((device) => {
       html += `• ${device.name}<br>`;
-      html += `&nbsp;&nbsp;- Carga média: ${device.average_load} kW<br>`;
-      html += `&nbsp;&nbsp;- Carga atual: ${device.current_load} kW<br>`;
+      html += `&nbsp;&nbsp;- Potência Média: ${device.avg_power} kW<br>`;
+      html += `&nbsp;&nbsp;- Potência Atual: ${device.current_power} kW<br>`;
     }); 
   }
   return html;
