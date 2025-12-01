@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import random
 from typing import List, Optional, MutableMapping, Sequence, Set
 
 from core.graph_core import PowerGridGraph
@@ -141,6 +142,67 @@ class LogicalGraphService:
         logs = list(self._log_buffer)
         self._log_buffer.clear()
         return logs
+
+    def retry_unsupplied_routing(self) -> None:
+        """
+        Tenta encontrar pai para consumidores sem fornecedor.
+        """
+        # Cria cópia para iterar com segurança
+        unsupplied = list(self.unsupplied_consumers)
+
+        count = 0
+        for consumer_id in unsupplied:
+            # Tenta reconectar
+            result = self.change_parent_with_routing(child_id=consumer_id)
+            if result.success:
+                count += 1
+
+        if count > 0:
+            self.log(f"Recuperação de energia: {count} nós foram reconectados à rede com sucesso.")
+
+    def handle_overload(self, node_id: str) -> None:
+        """
+        Verifica sobrecarga e realiza load shedding (corte de carga) se necessário.
+        Se a carga atual exceder a capacidade, desconecta filhos aleatórios até
+        que a situação se regularize.
+        """
+        node = self.graph.get_node(node_id)
+        if node is None or node.capacity is None or node.current_load is None:
+            return
+
+        if node.current_load <= node.capacity:
+            return
+
+        self.log(f"ALERTA DE SOBRECARGA: {node_id} (Carga: {node.current_load:.2f}kW > Cap: {node.capacity:.2f}kW). Iniciando corte de carga.")
+
+        children = self.index.get_children(node_id)
+        # Embaralha para desconectar aleatoriamente
+        random.shuffle(children)
+
+        for child_id in children:
+            if node.current_load <= node.capacity:
+                break
+
+            child = self.graph.get_node(child_id)
+            if not child: continue
+
+            # Desconecta o filho (torna-se raiz temporariamente)
+            self.index.detach_node(child_id)
+            # detach_node já remove da lista de filhos do pai
+
+            # Se for consumidor, registra como não suprido
+            if child.node_type == NodeType.CONSUMER_POINT:
+                self.unsupplied_consumers.add(child_id)
+
+            self.log(f"Corte de carga: Nó {child_id} desconectado de {node_id} para alívio do sistema.")
+
+            # Recalcula a carga do nó pai (agora menor)
+            load_aggregation.recompute_node_load_from_children(node_id, self.graph, self.index)
+            # Propaga a redução para cima (opcional, mas bom para consistência)
+            load_aggregation.propagate_load_upwards(node_id, self.graph, self.index)
+
+        if node.current_load > node.capacity:
+            self.log(f"ALERTA CRÍTICO: {node_id} permanece sobrecarregado ({node.current_load:.2f}kW) mesmo após corte de todos os filhos.")
 
     # ------------------------------------------------------------------
     # Hidratação do estado lógico (Correção 1.1)

@@ -116,6 +116,9 @@ class PowerGridBackend:
             service=self.service
         )
 
+        # Tenta reconectar nós sem fornecedor antes de retornar
+        self.service.retry_unsupplied_routing()
+
         return api_impl.api_get_tree_snapshot(
             graph=self.graph,
             index=self.index,
@@ -205,7 +208,7 @@ class PowerGridBackend:
         """
         Define a capacidade máxima de um nó.
         """
-        return api_impl.api_set_node_capacity(
+        result = api_impl.api_set_node_capacity(
             graph=self.graph,
             index=self.index,
             service=self.service,
@@ -213,6 +216,17 @@ class PowerGridBackend:
             node_id=node_id,
             new_capacity=new_capacity,
         )
+        # Verifica se a mudança causou sobrecarga e trata
+        self.service.handle_overload(node_id)
+        # O snapshot retornado pela api_impl não incluirá as mudanças de shedding
+        # se elas ocorrerem DEPOIS. Deveríamos retornar um novo snapshot?
+        # Sim, o handle_overload altera a rede.
+        # Mas api_set_node_capacity já retornou o dict.
+        # Eu devo chamar get_tree_snapshot novamente ou atualizar?
+        # O ideal é que api_set_node_capacity chamasse handle_overload.
+        # Mas api_impl é funcional e service é stateful.
+        # Eu posso chamar get_tree_snapshot() aqui e retornar.
+        return self.get_tree_snapshot()
 
     def force_overload(
         self,
@@ -222,7 +236,7 @@ class PowerGridBackend:
         """
         Força sobrecarga em um nó reduzindo sua capacidade.
         """
-        return api_impl.api_force_overload(
+        api_impl.api_force_overload(
             graph=self.graph,
             index=self.index,
             service=self.service,
@@ -230,6 +244,11 @@ class PowerGridBackend:
             node_id=node_id,
             overload_percentage=overload_percentage,
         )
+
+        # Trata a sobrecarga (shedding)
+        self.service.handle_overload(node_id)
+
+        return self.get_tree_snapshot()
 
     def set_device_average_load(
         self,

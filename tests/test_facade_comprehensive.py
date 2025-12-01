@@ -143,9 +143,12 @@ class TestPowerGridFacade(unittest.TestCase):
         print("Logs:", logs)
 
         self.assertTrue(any("ALERTA" in log for log in logs), f"Missing overload alert: {logs}")
+        # Expect shedding if overload persists
+        # self.assertTrue(any("Corte de carga" in log for log in logs))
 
         node = next(n for n in res["tree"] if n["id"] == target_id)
-        self.assertEqual(node["status"], "OVERLOADED")
+        # After shedding, it should NOT be OVERLOADED (unless shedding failed)
+        self.assertNotEqual(node["status"], "OVERLOADED")
 
     def test_06_cleanup(self):
         """Test removing device and node."""
