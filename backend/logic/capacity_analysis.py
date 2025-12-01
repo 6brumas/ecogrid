@@ -8,15 +8,20 @@ from logic.bplus_index import BPlusIndex
 def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
     """
     Inicializa a capacidade dos nós (Subestações e Usinas) baseado na topologia.
-    Regra: Node.capacity = 13.0 * (numero_de_filhos_diretos + 1)
+    Regra: Node.capacity = 13 * (num_children + 1) + sum(child.capacity or 0)
 
     NOTA: Nós do tipo CONSUMER_POINT são ignorados nesta função e devem ter
-    capacidade NULA (None), pois o conceito de capacidade foi removido para consumidores.
+    capacidade NULA (None).
     """
 
-    all_nodes = index.iter_preorder()
+    # Bottom-up traversal is required because capacity depends on children's capacity.
+    # index.iter_preorder() is Top-Down.
+    # We need to reverse it to process leaves first (consumers) then up to root.
 
-    for node_id in all_nodes:
+    nodes_ordered = list(index.iter_preorder())
+    nodes_bottom_up = reversed(nodes_ordered)
+
+    for node_id in nodes_bottom_up:
         node = graph.get_node(node_id)
         if node is None:
             continue
@@ -26,11 +31,16 @@ def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
             node.capacity = None
             continue
 
-        # Obtém número de filhos diretos
-        children_ids = list(index.get_children(node_id))
+        children_ids = index.get_children(node_id)
         num_children = len(children_ids)
 
-        # Aplica a nova regra: 13 * (filhos + 1)
-        new_capacity = 13.0 * (num_children + 1)
+        sum_children_capacity = 0.0
+        for child_id in children_ids:
+            child = graph.get_node(child_id)
+            if child and child.capacity is not None:
+                sum_children_capacity += child.capacity
+
+        # Nova regra: 13 * (filhos + 1) + soma_cap_filhos
+        new_capacity = (13.0 * (num_children + 1)) + sum_children_capacity
 
         node.capacity = new_capacity

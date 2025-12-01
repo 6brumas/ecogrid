@@ -9,7 +9,7 @@ sys.path.append(os.path.join(os.getcwd(), 'backend'))
 from physical.device_model import DeviceType
 from physical.device_catalog import get_device_template
 from api.backend_facade import PowerGridBackend
-from logic.ui_tree_snapshot import _translate_node_type, _determine_network_type, _round_val
+from logic.ui_tree_snapshot import _translate_node_type, _round_val
 from core.models import Node, NodeType
 from config import SimulationConfig
 
@@ -53,18 +53,12 @@ class TestNewRequirements(unittest.TestCase):
             self.assertIsNone(node.capacity, f"Consumer {node.id} should have None capacity")
 
     def test_api_localization_and_formatting(self):
-        """Verify translation, network type injection and rounding."""
+        """Verify translation and rounding."""
         # Test helper functions directly
 
         # Translations
         self.assertEqual(_translate_node_type(NodeType.CONSUMER_POINT), "Consumidor")
         self.assertEqual(_translate_node_type(NodeType.GENERATION_PLANT), "Usina Geradora")
-
-        # Network Type
-        self.assertEqual(_determine_network_type(13.0), "Monofásica")
-        self.assertEqual(_determine_network_type(None), None)
-        self.assertEqual(_determine_network_type(13.1), "Trifásica")
-        self.assertEqual(_determine_network_type(25.0), "Trifásica")
 
         # Rounding
         self.assertEqual(_round_val(1.23456), 1.235)
@@ -81,7 +75,7 @@ class TestNewRequirements(unittest.TestCase):
         self.assertIsNotNone(consumer_entry)
 
         # Verify keys and values
-        self.assertIsNone(consumer_entry.get("network_type"), "Network type should be None for consumers (no capacity)")
+        self.assertIsNone(consumer_entry.get("network_type"), "Network type should be removed")
         self.assertIsNone(consumer_entry.get("capacity"), "Capacity should be None")
         self.assertIsNone(consumer_entry.get("status"), "Status should be None for consumers")
 

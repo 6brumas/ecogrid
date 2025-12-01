@@ -3,11 +3,7 @@ const icons = {
   TRANSMISSION_SUBSTATION: "/static/icons/transmission.png",
   DISTRIBUTION_SUBSTATION: "/static/icons/distribution.png",
   CONSUMER_POINT: "/static/icons/consumer.png",
-  // Localized keys if needed, assuming backend sends localized types now?
-  // Backend sends "Usina Geradora", "Consumidor", etc.
-  // We need to map these localized strings to icons?
-  // Let's check ui_tree_snapshot.py again. It sends "node_type": "Consumidor".
-  // So we need to update this map or handle it.
+  // Localized keys
   "Usina Geradora": "/static/icons/substation.png",
   "Subestação de Transmissão": "/static/icons/transmission.png",
   "Subestação de Distribuição": "/static/icons/distribution.png",
@@ -58,11 +54,9 @@ export function createSVG(fromButton) {
 }
 
 export function buildHierarchy(flatData) {
-  // Verifica se temos múltiplos nós raízes (nós com parent_id nulo)
   const roots = flatData.filter(d => d.parent_id === null);
 
   if (roots.length > 1) {
-    // Cria um nó raiz virtual
     const virtualRoot = {
       id: "virtual_root",
       parent_id: null,
@@ -70,7 +64,6 @@ export function buildHierarchy(flatData) {
       status: "Normal"
     };
 
-    // Modifica as raízes existentes para apontarem para a raiz virtual
     const modifiedData = flatData.map(d => {
       if (d.parent_id === null) {
         return { ...d, parent_id: "virtual_root" };
@@ -151,7 +144,6 @@ export function buildTree(root, g) {
     })
     .on("mouseout", () => tooltip.classed("hidden", true));
 
-  // retângulo de fundo do ícone com cor baseada no status
   node
     .insert("rect", "image")
     .attr("x", -16)
@@ -186,12 +178,10 @@ function formatTooltip(obj) {
       html += `<strong>Status:</strong> ${obj.status}<br>`;
   }
 
-  // Renomeado Voltagem -> Tensão
   if (obj.nominal_voltage) {
       html += `<strong>Tensão:</strong> ${obj.nominal_voltage} V<br>`;
   }
 
-  // Capacity only if present
   if (obj.capacity !== null && obj.capacity !== undefined) {
       html += `<strong>Capacidade:</strong> ${obj.capacity} kW<br>`;
   }
@@ -200,9 +190,7 @@ function formatTooltip(obj) {
       html += `<strong>Carga atual:</strong> ${obj.current_load} kW<br>`;
   }
 
-  if (obj.network_type) {
-      html += `<strong>Rede:</strong> ${obj.network_type}<br>`;
-  }
+  // Removed Network Type display as requested
 
   if (Array.isArray(obj.devices) && obj.devices.length > 0) {
     html += `<br><strong>Dispositivos:</strong><br>`;

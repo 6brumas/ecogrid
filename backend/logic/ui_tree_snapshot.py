@@ -14,15 +14,9 @@ def _compute_status(node: Node, unsupplied_ids: Set[str]) -> Optional[str]:
     Para Consumidores, retorna None (sem status).
     Para outros, retorna o status traduzido.
     """
-    # Consumidores: Sem status (None)
     if node.node_type == NodeType.CONSUMER_POINT:
         return None
 
-    # Se estiver marcado como não suprido (pode acontecer para subestações se implementado)
-    # Mas unsupplied_ids é tipicamente de consumidores.
-    # Se uma subestação estiver isolada, ela pode ser considerada "Sem Energia".
-    # A lógica original tratava unsupplied_ids apenas para Consumers.
-    # Vamos manter a lógica original para outros tipos se estiverem na lista (defensiva).
     if node.id in unsupplied_ids:
         return "Sem Energia"
 
@@ -48,10 +42,6 @@ def _compute_status(node: Node, unsupplied_ids: Set[str]) -> Optional[str]:
 def _translate_node_type(node_type: NodeType) -> str:
     """
     Traduz o tipo de nó para Português do Brasil.
-    GENERATION_PLANT -> "Usina Geradora"
-    TRANSMISSION_SUBSTATION -> "Subestação de Transmissão"
-    DISTRIBUTION_SUBSTATION -> "Subestação de Distribuição"
-    CONSUMER_POINT -> "Consumidor"
     """
     mapping = {
         NodeType.GENERATION_PLANT: "Usina Geradora",
@@ -60,60 +50,6 @@ def _translate_node_type(node_type: NodeType) -> str:
         NodeType.CONSUMER_POINT: "Consumidor",
     }
     return mapping.get(node_type, node_type.name)
-
-
-def _determine_network_type(capacity: Optional[float]) -> Optional[str]:
-    """
-    Determina o tipo de rede com base na capacidade (regra de negócio).
-    Se capacity for None, retorna None (não exibe).
-    """
-    if capacity is None:
-        return None
-
-    # Tolerância de ponto flutuante, considerando 13.0 exato
-    if capacity <= 13.001:
-        return "Monofásica"
-    return "Trifásica"
-
-
-def _round_val(val: Optional[float]) -> Optional[float]:
-    """Arredonda para 3 casas decimais."""
-    if val is None:
-        return None
-    return round(val, 3)
-
-
-def _translate_node_type(node_type: NodeType) -> str:
-    """
-    Traduz o tipo de nó para Português do Brasil.
-    GENERATION_PLANT -> "Usina Geradora"
-    TRANSMISSION_SUBSTATION -> "Subestação de Transmissão"
-    DISTRIBUTION_SUBSTATION -> "Subestação de Distribuição"
-    CONSUMER_POINT -> "Consumidor"
-    """
-    mapping = {
-        NodeType.GENERATION_PLANT: "Usina Geradora",
-        NodeType.TRANSMISSION_SUBSTATION: "Subestação de Transmissão",
-        NodeType.DISTRIBUTION_SUBSTATION: "Subestação de Distribuição",
-        NodeType.CONSUMER_POINT: "Consumidor",
-    }
-    return mapping.get(node_type, node_type.name)
-
-
-def _determine_network_type(capacity: Optional[float]) -> str:
-    """
-    Determina o tipo de rede com base na capacidade (regra de negócio).
-    Se capacidade <= 13.0 -> "Monofásica"
-    Se capacidade > 13.0 -> "Trifásica"
-    Caso None -> "Desconhecido" (ou padrão)
-    """
-    if capacity is None:
-        return "Desconhecido"
-
-    # Tolerância de ponto flutuante, considerando 13.0 exato
-    if capacity <= 13.001:
-        return "Monofásica"
-    return "Trifásica"
 
 
 def _round_val(val: Optional[float]) -> Optional[float]:
@@ -130,13 +66,10 @@ def _build_tree_entry(
 ) -> Dict:
     """
     Constrói a entrada plana (flat) de um nó na árvore de UI.
-    Aplica traduções e arredondamentos.
     """
-    # Tradução do tipo de nó
     node_type_translated = _translate_node_type(node.node_type)
 
-    # Determinação do tipo de rede
-    network_type = _determine_network_type(node.capacity)
+    # Removed network_type entirely as requested
 
     return {
         "id": node.id,
@@ -188,7 +121,6 @@ def build_full_ui_snapshot(
     """
     tree_entries: List[Dict] = []
 
-    # Percorre a árvore lógica em pré-ordem usando o índice B+.
     for node_id in index.iter_preorder():
         node: Optional[Node] = graph.get_node(node_id)
         if node is None:
