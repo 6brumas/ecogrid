@@ -166,7 +166,7 @@ def get_device_template(device_type: DeviceType) -> DeviceTemplate:
         return DeviceTemplate(
             device_type=device_type,
             default_name="TV",
-            avg_power=0.1,  # exemplo: 0.1 kW
+            avg_power=0.195,  # exemplo: 0.195 kW
             daily_profile=_residential_daily_profile(),
             noise=_default_noise(amplitude=0.15),
             min_fraction_of_avg=0.0,
@@ -177,7 +177,7 @@ def get_device_template(device_type: DeviceType) -> DeviceTemplate:
         return DeviceTemplate(
             device_type=device_type,
             default_name="Fridge",
-            avg_power=0.08,  # exemplo: 0.08 kW
+            avg_power=0.1,  # exemplo: 0.1 kW
             daily_profile=_flat_daily_profile(),
             noise=_default_noise(amplitude=0.05),
             min_fraction_of_avg=0.3,
