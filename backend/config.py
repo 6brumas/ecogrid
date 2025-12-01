@@ -80,14 +80,14 @@ class SimulationConfig:
     area_height: float = 1000.0
 
     # Clusters e densidade
-    num_clusters: int = 3
+    num_clusters: int = 5
     cluster_radius: float = 120.0
-    consumers_per_cluster: int = 15
+    consumers_per_cluster: int = 150
     distribution_substations_per_cluster: int = 3
 
     # Quantidade de nós por nível
     num_generation_plants: int = 1
-    num_transmission_substations: int = 3
+    num_transmission_substations: int = 6
 
     # Tensões nominais (em Volts)
     generation_nominal_voltage: float | None = 500e3     # 500 kV
