@@ -25,7 +25,8 @@ generate_default_graph(nodes_path=NODES_PATH, edges_path=EDGES_PATH)
 
 # Inicializa o BackendFacade
 # Isso lida com o carregamento do grafo a partir de arquivos e configuração do índice/serviço
-backend = PowerGridBackend(nodes_path=NODES_PATH, edges_path=EDGES_PATH)
+# Use NODES_PATH as the first argument (config_or_path)
+backend = PowerGridBackend(config_or_path=NODES_PATH, edges_path=EDGES_PATH)
 
 # configuração do FastAPI
 app = FastAPI()
