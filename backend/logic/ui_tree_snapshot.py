@@ -69,6 +69,8 @@ def _build_tree_entry(
     """
     node_type_translated = _translate_node_type(node.node_type)
 
+    # Removed network_type entirely as requested
+
     return {
         "id": node.id,
         "parent_id": parent_id,
@@ -80,7 +82,6 @@ def _build_tree_entry(
         "capacity": _round_val(node.capacity),
         "current_load": _round_val(node.current_load),
         "status": _compute_status(node, unsupplied_ids),
-        "network_type": network_type,
     }
 
 
@@ -116,17 +117,8 @@ def build_full_ui_snapshot(
 ) -> Dict[str, Any]:
     """
     Gera o snapshot completo da árvore lógica para o front-end.
-    Garante integridade referencial: se o pai de um nó não existe no grafo,
-    o parent_id é definido como None.
     """
     tree_entries: List[Dict] = []
-
-    # First pass: Identify all nodes that will be included in the snapshot
-    # This matches the loop below: only nodes present in graph are included.
-    valid_node_ids = set()
-    for node_id in index.iter_preorder():
-        if graph.get_node(node_id) is not None:
-            valid_node_ids.add(node_id)
 
     for node_id in index.iter_preorder():
         node: Optional[Node] = graph.get_node(node_id)
@@ -134,12 +126,6 @@ def build_full_ui_snapshot(
             continue
 
         parent_id = index.get_parent(node_id)
-
-        # Validation: Ensure parent exists in the snapshot set
-        if parent_id is not None and parent_id not in valid_node_ids:
-            # If parent is missing from graph, treat this node as a root
-            parent_id = None
-
         entry = _build_tree_entry(
             node=node,
             parent_id=parent_id,
