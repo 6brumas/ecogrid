@@ -301,9 +301,9 @@ class PowerGridBackend:
     def simulate_node_failure(self, node_id: str) -> Dict[str, List[Dict]]:
         """
         Simula falha em um nó:
-        - Salva capacidade e dispositivos (se consumidor).
+        - Salva capacidade.
         - Zera capacidade.
-        - Se consumidor, remove dispositivos (zerando carga).
+        - Executa handle_overload para desconectar filhos (load shedding) se for estação.
         - Adiciona aos nós falhos para exibir status "Falha".
         """
         node = self.graph.get_node(node_id)
@@ -324,22 +324,8 @@ class PowerGridBackend:
         # Para consumidores, capacity é None, mas setamos 0 para indicar falha
         node.capacity = 0.0
 
-        # Se for consumidor, backup e remoção de dispositivos
-        if node.node_type == NodeType.CONSUMER_POINT:
-            devices = self.device_state.devices_by_node.get(node_id, [])
-            # Copia dispositivos para restaurar depois
-            # Note que IoTDevice é mutável, mas aqui estamos salvando as referências
-            # ou deveríamos copiar? Como vamos remover da lista, a referência é segura desde que não alteremos o objeto
-            backup_data["devices"] = list(devices)
-
-            # Remove dispositivos do estado
-            self.device_state.devices_by_node[node_id] = []
-
-            # Atualiza carga do consumidor (vai para 0)
-            self.service.update_load_after_device_change(
-                consumer_id=node_id,
-                node_devices=self.device_state.devices_by_node
-            )
+        # NOTA: Removida lógica de remover dispositivos de consumidores.
+        # Agora o consumidor mantém seus dispositivos e carga, mas fica com status "Falha".
 
         self._failed_nodes_backup[node_id] = backup_data
 
@@ -347,6 +333,7 @@ class PowerGridBackend:
         self.service.log_buffer.append(f"Simulação de FALHA iniciada no nó {node_id}. Capacidade zerada.")
 
         # Re-calcula sobrecargas (pois a capacidade zerou)
+        # Isso fará com que subestações desconectem seus filhos (load shedding).
         self.service.handle_overload(node_id)
 
         return self.get_tree_snapshot()
@@ -355,7 +342,6 @@ class PowerGridBackend:
         """
         Finaliza a simulação de falha:
         - Restaura capacidade.
-        - Restaura dispositivos.
         - Remove da lista de falhas.
         """
         if node_id not in self._failed_nodes_backup:
@@ -370,17 +356,6 @@ class PowerGridBackend:
 
         # Restaura capacidade
         node.capacity = backup_data["capacity"]
-
-        # Se tinha dispositivos salvos, restaura
-        if "devices" in backup_data:
-            restored_devices = backup_data["devices"]
-            self.device_state.devices_by_node[node_id] = restored_devices
-
-            # Atualiza carga
-            self.service.update_load_after_device_change(
-                consumer_id=node_id,
-                node_devices=self.device_state.devices_by_node
-            )
 
         self.service.log_buffer.append(f"Simulação de FALHA finalizada no nó {node_id}. Estado restaurado.")
 
