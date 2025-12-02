@@ -18,7 +18,6 @@ btnLoadTree.addEventListener("click", (e) => {
       return response.json();
     })
     .then((data) => {
-      // Integra dispositivos nos nós para exibição no tooltip
       if (data.devices) {
         data.tree.forEach((node) => {
           if (data.devices[node.id]) {
