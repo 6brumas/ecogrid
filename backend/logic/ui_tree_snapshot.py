@@ -8,12 +8,15 @@ from logic.bplus_index import BPlusIndex
 from physical.device_model import IoTDevice
 
 
-def _compute_status(node: Node, unsupplied_ids: Set[str]) -> Optional[str]:
+def _compute_status(node: Node, unsupplied_ids: Set[str], failed_nodes: Set[str]) -> Optional[str]:
     """
     Calcula o status lógico de um nó para exibição na árvore de UI.
     Para Consumidores, retorna None (sem status).
     Para outros, retorna o status traduzido.
     """
+    if node.id in failed_nodes:
+        return "Falha"
+
     if node.node_type == NodeType.CONSUMER_POINT:
         return None
 
@@ -63,6 +66,7 @@ def _build_tree_entry(
     node: Node,
     parent_id: Optional[str],
     unsupplied_ids: Set[str],
+    failed_nodes: Set[str],
 ) -> Dict:
     """
     Constrói a entrada plana (flat) de um nó na árvore de UI.
@@ -81,7 +85,7 @@ def _build_tree_entry(
         "nominal_voltage": _round_val(node.nominal_voltage),
         "capacity": _round_val(node.capacity),
         "current_load": _round_val(node.current_load),
-        "status": _compute_status(node, unsupplied_ids),
+        "status": _compute_status(node, unsupplied_ids, failed_nodes),
     }
 
 
@@ -114,10 +118,14 @@ def build_full_ui_snapshot(
     unsupplied_ids: Set[str],
     devices_by_node: Optional[Dict[str, List[IoTDevice]]] = None,
     logs: Optional[List[str]] = None,
+    failed_nodes: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
     """
     Gera o snapshot completo da árvore lógica para o front-end.
     """
+    if failed_nodes is None:
+        failed_nodes = set()
+
     tree_entries: List[Dict] = []
 
     for node_id in index.iter_preorder():
@@ -130,6 +138,7 @@ def build_full_ui_snapshot(
             node=node,
             parent_id=parent_id,
             unsupplied_ids=unsupplied_ids,
+            failed_nodes=failed_nodes,
         )
         tree_entries.append(entry)
 

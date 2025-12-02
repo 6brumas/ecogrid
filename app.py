@@ -69,6 +69,26 @@ async def get_tree():
     arvore = backend.get_tree_snapshot()
     return JSONResponse(arvore)
 
+@app.post("/simulation/node-failure/start")
+async def start_node_failure(data: dict):
+    """Inicia a simulação de falha de nó (estado)."""
+    id_no = data.get("id")
+    if not id_no:
+        return JSONResponse({"error": "ID do nó não fornecido"}, status_code=400)
+
+    arvore = backend.simulate_node_failure(id_no)
+    return JSONResponse(arvore)
+
+@app.post("/simulation/node-failure/end")
+async def end_node_failure(data: dict):
+    """Finaliza a simulação de falha de nó (restaura estado)."""
+    id_no = data.get("id")
+    if not id_no:
+        return JSONResponse({"error": "ID do nó não fornecido"}, status_code=400)
+
+    arvore = backend.finalize_node_failure(id_no)
+    return JSONResponse(arvore)
+
 # rota para o WebSocket de simulação
 @app.websocket("/simulation")
 async def simulation_socket(ws: WebSocket):
@@ -92,8 +112,12 @@ async def simulation_socket(ws: WebSocket):
             if tipo == "overload":
                 arvore = sim_sobrecarga(id_no)
 
+            # node-failure agora é tratado via POST endpoints para estado
+            # mas mantemos aqui caso o front tente usar o socket, retornando apenas snapshot atual
             elif tipo == "node-failure":
-                arvore = sim_falha_no(id_no)
+                # O front deve usar os endpoints POST para start/end.
+                # Se cair aqui, mandamos snapshot atual (talvez já com falha aplicada via POST)
+                arvore = backend.get_tree_snapshot()
 
             elif tipo == "consumption-peak":
                 arvore = sim_pico_consumo(id_no)

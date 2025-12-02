@@ -21,6 +21,7 @@ const statusColors = {
   "Alerta": "#FFC107",
   "Sobrecarga": "#F44336",
   "Sem Energia": "#9E9E9E",
+  "Falha": "#000000", // Black for Failure
   "Desconhecido": "#607D8B",
   unknown: "#607D8B",
 };

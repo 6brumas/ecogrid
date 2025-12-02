@@ -133,14 +133,14 @@ class LogicalGraphService:
         self.graph = graph
         self.index = index
         self.unsupplied_consumers: Set[str] = set()
-        self._log_buffer: List[str] = []
+        self.log_buffer: List[str] = []
 
     def log(self, message: str) -> None:
-        self._log_buffer.append(message)
+        self.log_buffer.append(message)
 
     def consume_logs(self) -> List[str]:
-        logs = list(self._log_buffer)
-        self._log_buffer.clear()
+        logs = list(self.log_buffer)
+        self.log_buffer.clear()
         return logs
 
     def retry_unsupplied_routing(self) -> None:
