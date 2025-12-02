@@ -62,6 +62,18 @@ def compute_device_power(
 
     current = avg_power * (1.0 + variation)
 
+    # Restrição explícita (Hard Clamp) para garantir que erros de
+    # ponto flutuante não violem os limites solicitados.
+    min_limit = avg_power * 0.8
+    max_limit = avg_power * 1.2
+
+    # Se avg_power for negativo (incomum), os limites se invertem.
+    # Mas assumimos avg_power >= 0 aqui.
+    if current < min_limit:
+        current = min_limit
+    elif current > max_limit:
+        current = max_limit
+
     return current
 
 
