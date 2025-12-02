@@ -18,6 +18,7 @@ def api_get_tree_snapshot(
     index: BPlusIndex,
     service: LogicalGraphService,
     sim_state: DeviceSimulationState,
+    failed_nodes: Set[str] | None = None,
 ) -> Dict[str, List[Dict]]:
     """
     Retorna o snapshot atual da árvore lógica para o front-end, sem
@@ -42,6 +43,8 @@ def api_get_tree_snapshot(
             Serviço lógico que mantém o conjunto de consumidores sem
             energia (`unsupplied_consumers`), usado para marcar nós
             como "UNSUPPLIED" no snapshot.
+        failed_nodes:
+            Conjunto de IDs de nós que estão em estado de falha simulada.
 
     Retorno:
         Dicionário com as chaves "tree" e "logs", representando o
@@ -53,6 +56,7 @@ def api_get_tree_snapshot(
         unsupplied_ids=service.unsupplied_consumers,
         devices_by_node=sim_state.devices_by_node,
         logs=service.consume_logs(),
+        failed_nodes=failed_nodes,
     )
 
 
