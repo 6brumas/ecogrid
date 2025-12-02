@@ -83,11 +83,11 @@ class SimulationConfig:
     num_clusters: int = 3
     cluster_radius: float = 480.0
     consumers_per_cluster: int = 13
-    distribution_substations_per_cluster: int = 3
+    distribution_substations_per_cluster: int = 2
 
     # Quantidade de nós por nível
     num_generation_plants: int = 1
-    num_transmission_substations: int = 3
+    num_transmission_substations: int = 2
 
     # Tensões nominais (em Volts)
     generation_nominal_voltage: float | None = 500e3     # 500 kV
