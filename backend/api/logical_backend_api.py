@@ -50,6 +50,10 @@ def api_get_tree_snapshot(
         Dicionário com as chaves "tree" e "logs", representando o
         estado atual da árvore lógica.
     """
+    # Garante que a saúde do sistema seja verificada a cada snapshot
+    # (autocorreção, load shedding por sobrecarga, etc.)
+    service.check_system_health()
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
