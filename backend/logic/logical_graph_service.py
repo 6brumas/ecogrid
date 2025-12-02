@@ -143,31 +143,95 @@ class LogicalGraphService:
         self.log_buffer.clear()
         return logs
 
+    def check_system_health(self) -> None:
+        """
+        Executa verificações proativas de saúde da rede:
+        1. Percorre todos os nós para verificar se seu pai está sobrecarregado.
+           Se estiver, o nó desconecta (simulando perda de conexão por instabilidade).
+        2. Tenta reconectar nós órfãos (consumidores e subestações sem pai).
+        """
+        # 1. Verificação de sobrecarga do pai ("Collector" logic)
+        # Iteramos uma cópia para permitir modificações
+        all_nodes = list(self.graph.nodes.keys())
+        overload_detach_count = 0
+
+        for node_id in all_nodes:
+            parent_id = self.index.get_parent(node_id)
+            if not parent_id:
+                continue
+
+            parent = self.graph.get_node(parent_id)
+            if not parent or parent.capacity is None or parent.current_load is None:
+                continue
+
+            # Se o pai está sobrecarregado, o filho perde a conexão
+            if parent.current_load > parent.capacity:
+                self.index.detach_node(node_id)
+                node = self.graph.get_node(node_id)
+                if node and node.node_type == NodeType.CONSUMER_POINT:
+                    self.unsupplied_consumers.add(node_id)
+
+                overload_detach_count += 1
+                self.log(f"Instabilidade: Nó {node_id} perdeu conexão com {parent_id} devido a sobrecarga no fornecedor.")
+
+                # Atualiza carga do pai (que reduziu)
+                load_aggregation.recompute_node_load_from_children(parent_id, self.graph, self.index)
+                load_aggregation.propagate_load_upwards(parent_id, self.graph, self.index)
+
+        if overload_detach_count > 0:
+            self.log(f"Saúde da rede: {overload_detach_count} nós desconectados preventivamente devido a sobrecarga de fornecedores.")
+
+        # 2. Tentativa de recuperação
+        self.retry_unsupplied_routing()
+
     def retry_unsupplied_routing(self) -> None:
         """
-        Tenta encontrar pai para consumidores sem fornecedor e para
-        subestações isoladas (raízes que não são usinas).
+        Tenta encontrar pai para TODOS os nós sem fornecedor, garantindo
+        coleta abrangente de órfãos (consumidores, distribuição, transmissão).
+
+        A estratégia segue uma ordem hierárquica (Transmission -> Distribution -> Consumer)
+        para maximizar a chance de reconectar "ilhas" inteiras corretamente.
         """
         count = 0
 
-        # 1. Tenta reconectar consumidores explicitamente não supridos
-        unsupplied = list(self.unsupplied_consumers)
-        for consumer_id in unsupplied:
-            result = self.change_parent_with_routing(child_id=consumer_id)
+        # Identifica todos os nós que deveriam ter pai mas não têm (estão como raízes ou fora da B+)
+        # Nós válidos para roteamento são aqueles que NÃO são GENERATION_PLANT
+        orphans = []
+
+        # 1. Varre todo o grafo para encontrar quem está sem pai lógico
+        for node_id, node in self.graph.nodes.items():
+            if node.node_type == NodeType.GENERATION_PLANT:
+                continue
+
+            parent_id = self.index.get_parent(node_id)
+            if parent_id is None:
+                # É um órfão (raiz lógica não-Usina ou desconectado)
+                orphans.append(node)
+
+        # 2. Ordena por prioridade hierárquica para tentar consertar o "backbone" primeiro
+        def routing_priority(n: Node) -> int:
+            if n.node_type == NodeType.TRANSMISSION_SUBSTATION:
+                return 1
+            if n.node_type == NodeType.DISTRIBUTION_SUBSTATION:
+                return 2
+            if n.node_type == NodeType.CONSUMER_POINT:
+                return 3
+            return 99
+
+        orphans.sort(key=routing_priority)
+
+        # 3. Tenta reconectar cada órfão
+        for node in orphans:
+            result = self.change_parent_with_routing(child_id=node.id)
             if result.success:
                 count += 1
-
-        # 2. Tenta reconectar subestações isoladas (que se tornaram raízes por falta de pai)
-        #    Identificamos como raízes que NÃO são usinas (GENERATION_PLANT).
-        current_roots = list(self.index.get_roots())
-        for root_id in current_roots:
-            node = self.graph.get_node(root_id)
-            if node and node.node_type != NodeType.GENERATION_PLANT:
-                # Tenta rotear esta subestação órfã para um novo pai (ex: outra TS ou Usina)
-                result = self.change_parent_with_routing(child_id=root_id)
-                if result.success:
-                    count += 1
-                    # Nota: se essa subestação reconectar, seus filhos também "voltam" para a rede.
+                # Se for consumidor, remove da lista de não-supridos
+                if node.node_type == NodeType.CONSUMER_POINT:
+                    self.unsupplied_consumers.discard(node.id)
+            else:
+                # Se falhar e for consumidor, garante que está na lista
+                if node.node_type == NodeType.CONSUMER_POINT:
+                    self.unsupplied_consumers.add(node.id)
 
         if count > 0:
             self.log(f"Recuperação estrutural: {count} nós (consumidores ou subestações) foram reconectados à rede com sucesso.")
