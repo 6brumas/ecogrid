@@ -87,6 +87,9 @@ class PowerGridBackend:
         # Nota: initialize_capacities agora ignora CONSUMER_POINT para não sobrescrever a lógica de 13/25kW
         initialize_capacities(self.graph, self.index)
 
+        # 5. Inicializa backup para falhas de nó
+        self._failed_nodes_backup = {}
+
 
     def _init_default_devices(self) -> None:
         """
@@ -140,11 +143,15 @@ class PowerGridBackend:
         # Tenta reconectar nós sem fornecedor antes de retornar
         self.service.retry_unsupplied_routing()
 
+        # Passa a lista de nós em falha para serem marcados com status "Falha"
+        failed_nodes = set(self._failed_nodes_backup.keys())
+
         return api_impl.api_get_tree_snapshot(
             graph=self.graph,
             index=self.index,
             service=self.service,
             sim_state=self.device_state,
+            failed_nodes=failed_nodes
         )
 
     # ------------------------------------------------------------------
@@ -290,3 +297,94 @@ class PowerGridBackend:
             node_id=node_id,
             device_id=device_id,
         )
+
+    def simulate_node_failure(self, node_id: str) -> Dict[str, List[Dict]]:
+        """
+        Simula falha em um nó:
+        - Salva capacidade e dispositivos (se consumidor).
+        - Zera capacidade.
+        - Se consumidor, remove dispositivos (zerando carga).
+        - Adiciona aos nós falhos para exibir status "Falha".
+        """
+        node = self.graph.get_node(node_id)
+        if not node:
+            # Se não existe, ignora ou retorna erro. Retornando snapshot normal.
+            return self.get_tree_snapshot()
+
+        if node_id in self._failed_nodes_backup:
+            # Já está em falha, não faz nada
+            return self.get_tree_snapshot()
+
+        # Backup
+        backup_data = {
+            "capacity": node.capacity
+        }
+
+        # Zera capacidade
+        # Para consumidores, capacity é None, mas setamos 0 para indicar falha
+        node.capacity = 0.0
+
+        # Se for consumidor, backup e remoção de dispositivos
+        if node.node_type == NodeType.CONSUMER_POINT:
+            devices = self.device_state.devices_by_node.get(node_id, [])
+            # Copia dispositivos para restaurar depois
+            # Note que IoTDevice é mutável, mas aqui estamos salvando as referências
+            # ou deveríamos copiar? Como vamos remover da lista, a referência é segura desde que não alteremos o objeto
+            backup_data["devices"] = list(devices)
+
+            # Remove dispositivos do estado
+            self.device_state.devices_by_node[node_id] = []
+
+            # Atualiza carga do consumidor (vai para 0)
+            self.service.update_load_after_device_change(
+                consumer_id=node_id,
+                node_devices=self.device_state.devices_by_node
+            )
+
+        self._failed_nodes_backup[node_id] = backup_data
+
+        # Log da operação
+        self.service.log_buffer.append(f"Simulação de FALHA iniciada no nó {node_id}. Capacidade zerada.")
+
+        # Re-calcula sobrecargas (pois a capacidade zerou)
+        self.service.handle_overload(node_id)
+
+        return self.get_tree_snapshot()
+
+    def finalize_node_failure(self, node_id: str) -> Dict[str, List[Dict]]:
+        """
+        Finaliza a simulação de falha:
+        - Restaura capacidade.
+        - Restaura dispositivos.
+        - Remove da lista de falhas.
+        """
+        if node_id not in self._failed_nodes_backup:
+            return self.get_tree_snapshot()
+
+        node = self.graph.get_node(node_id)
+        if not node:
+             del self._failed_nodes_backup[node_id]
+             return self.get_tree_snapshot()
+
+        backup_data = self._failed_nodes_backup.pop(node_id)
+
+        # Restaura capacidade
+        node.capacity = backup_data["capacity"]
+
+        # Se tinha dispositivos salvos, restaura
+        if "devices" in backup_data:
+            restored_devices = backup_data["devices"]
+            self.device_state.devices_by_node[node_id] = restored_devices
+
+            # Atualiza carga
+            self.service.update_load_after_device_change(
+                consumer_id=node_id,
+                node_devices=self.device_state.devices_by_node
+            )
+
+        self.service.log_buffer.append(f"Simulação de FALHA finalizada no nó {node_id}. Estado restaurado.")
+
+        # Verifica se ainda há sobrecarga (deve normalizar se carga < capacidade restaurada)
+        self.service.handle_overload(node_id)
+
+        return self.get_tree_snapshot()
