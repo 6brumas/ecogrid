@@ -80,6 +80,7 @@ def _build_tree_entry(
         "capacity": _round_val(node.capacity),
         "current_load": _round_val(node.current_load),
         "status": _compute_status(node, unsupplied_ids),
+        "network_type": network_type,
     }
 
 
