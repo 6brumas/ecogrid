@@ -16,25 +16,10 @@ def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
 
     # 1. Calculate global metrics
     total_consumers = 0
-    roots = index.get_roots()
-
-    # Count only Generation Plants as valid roots for clusters?
-    # Or any root? Usually clusters implies distinct power sources.
-    # Let's count generation plants as clusters.
-
-    num_clusters = 0
     for node_id in graph.nodes:
         node = graph.get_node(node_id)
         if node and node.node_type == NodeType.CONSUMER_POINT:
             total_consumers += 1
-        if node and node.node_type == NodeType.GENERATION_PLANT:
-             num_clusters += 1
-
-    # Fallback if no clusters (should not happen in valid graph, but safe to handle)
-    if num_clusters == 0:
-        num_clusters = 1
-
-    avg_consumers_per_cluster = total_consumers / num_clusters
 
     # Bottom-up traversal is required because capacity depends on children's capacity.
     # index.iter_preorder() is Top-Down.
@@ -56,19 +41,20 @@ def initialize_capacities(graph: PowerGridGraph, index: BPlusIndex) -> None:
         children_ids = index.get_children(node_id)
         num_children = len(children_ids)
 
-        sum_children_capacity = 0.0
-        for child_id in children_ids:
-            child = graph.get_node(child_id)
-            if child and child.capacity is not None:
-                sum_children_capacity += child.capacity
+        # Regras Específicas:
+        if node.node_type == NodeType.DISTRIBUTION_SUBSTATION:
+            # capacidade = 13 * (número de filhos + 1)
+            node.capacity = 13.0 * (num_children + 1)
 
-        # Nova regra: 13 * max(sum(child_capacities) + child_count, (total_consumers / clusters) + 1)
-        # Note: sum_children_capacity is the sum of capacities of children.
-        # num_children is child_count.
+        elif node.node_type == NodeType.TRANSMISSION_SUBSTATION:
+            # capacidade = 13 * (número de nós consumidores em toda a rede ) * 0.75
+            node.capacity = 13.0 * total_consumers * 0.75
 
-        base_term = sum_children_capacity + num_children
-        cluster_term = avg_consumers_per_cluster + 1
-
-        new_capacity = 13.0 * max(base_term, cluster_term)
-
-        node.capacity = new_capacity
+        elif node.node_type == NodeType.GENERATION_PLANT:
+            # Padrão seguro para usinas: cobrir demanda total de consumidores (aprox)
+            # Usa lógica similar a Transmissão mas sem fator de redução, ou soma capacidades filhas.
+            # Vamos usar 13 * total_consumers para garantir que seja > Transmissão
+            node.capacity = 13.0 * total_consumers
+        else:
+            # Fallback genérico (não deve acontecer com tipos conhecidos)
+            node.capacity = 13.0 * (num_children + 1)

@@ -189,6 +189,10 @@ function formatTooltip(obj) {
     html += `<strong>Carga atual:</strong> ${obj.current_load} kW<br>`;
   }
 
+  if (obj.energy_loss !== null && obj.energy_loss !== undefined) {
+    html += `<strong>Perda Energética:</strong> ${obj.energy_loss}%<br>`;
+  }
+
   if (Array.isArray(obj.devices) && obj.devices.length > 0) {
     html += `<br><strong>Dispositivos:</strong><br>`;
     obj.devices.forEach((device) => {
