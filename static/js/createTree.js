@@ -3,11 +3,10 @@ const icons = {
   TRANSMISSION_SUBSTATION: "/static/icons/transmission.png",
   DISTRIBUTION_SUBSTATION: "/static/icons/distribution.png",
   CONSUMER_POINT: "/static/icons/consumer.png",
-  // Localized keys
   "Usina Geradora": "/static/icons/substation.png",
   "Subestação de Transmissão": "/static/icons/transmission.png",
   "Subestação de Distribuição": "/static/icons/distribution.png",
-  "Consumidor": "/static/icons/consumer.png",
+  Consumidor: "/static/icons/consumer.png",
   default: "/static/icons/default.png",
 };
 
@@ -16,13 +15,12 @@ const statusColors = {
   WARNING: "#FFC107",
   OVERLOADED: "#F44336",
   OFFLINE: "#9E9E9E",
-  // Portuguese mapping
-  "Normal": "#4CAF50",
-  "Alerta": "#FFC107",
-  "Sobrecarga": "#F44336",
+  Normal: "#4CAF50",
+  Alerta: "#FFC107",
+  Sobrecarga: "#F44336",
   "Sem Energia": "#9E9E9E",
-  "Falha": "#000000", // Black for Failure
-  "Desconhecido": "#607D8B",
+  Falha: "#000000",
+  Desconhecido: "#607D8B",
   unknown: "#607D8B",
 };
 
@@ -55,17 +53,17 @@ export function createSVG(fromButton) {
 }
 
 export function buildHierarchy(flatData) {
-  const roots = flatData.filter(d => d.parent_id === null);
+  const roots = flatData.filter((d) => d.parent_id === null);
 
   if (roots.length > 1) {
     const virtualRoot = {
       id: "virtual_root",
       parent_id: null,
       node_type: "default",
-      status: "Normal"
+      status: "Normal",
     };
 
-    const modifiedData = flatData.map(d => {
+    const modifiedData = flatData.map((d) => {
       if (d.parent_id === null) {
         return { ...d, parent_id: "virtual_root" };
       }
@@ -87,7 +85,7 @@ export function buildHierarchy(flatData) {
 }
 
 export function buildTree(root, g) {
-  const treeLayout = d3.tree().size([height * 0.9, width * 0.4]);
+  const treeLayout = d3.tree().size([height * 1.8, width * 0.4]);
   treeLayout(root);
 
   g.selectAll("*").remove();
@@ -107,14 +105,14 @@ export function buildTree(root, g) {
       "d",
       d3
         .linkHorizontal()
-        .x((d) => d.y - 16)
+        .x((d) => d.y - 8)
         .y((d) => d.x)
     );
 
   links
     .append("text")
     .attr("class", "link-label")
-    .attr("font-size", 12)
+    .attr("font-size", 10)
     .attr("dy", -5)
     .text((d) => d.target.data.resistance ?? "")
     .attr("transform", (d) => {
@@ -147,25 +145,25 @@ export function buildTree(root, g) {
 
   node
     .insert("rect", "image")
-    .attr("x", -16)
-    .attr("y", -10)
-    .attr("width", 32)
-    .attr("height", 26)
+    .attr("x", -8)
+    .attr("y", -6)
+    .attr("width", 16)
+    .attr("height", 14)
     .attr("rx", 6)
-    .attr("fill", (d) => statusColors[d.data.status] || "#fff");
+    .attr("fill", (d) => statusColors[d.data.status] || statusColors.unknown);
 
   node
     .append("image")
     .attr("href", (d) => icons[d.data.node_type] || icons.default)
-    .attr("width", 22) 
-    .attr("height", 22) 
-    .attr("x", -12) 
-    .attr("y", -10); 
+    .attr("width", 12)
+    .attr("height", 12)
+    .attr("x", -6)
+    .attr("y", -5);
 
   node
     .append("text")
     .attr("class", "node-text")
-    .attr("dy", 24)
+    .attr("dy", 14)
     .attr("text-anchor", "middle")
     .text((d) => d.data.id);
 }
@@ -176,22 +174,20 @@ function formatTooltip(obj) {
   html += `<strong>Id do Cluster:</strong> ${obj.cluster_id}<br>`;
 
   if (obj.status) {
-      html += `<strong>Status:</strong> ${obj.status}<br>`;
+    html += `<strong>Status:</strong> ${obj.status}<br>`;
   }
 
   if (obj.nominal_voltage) {
-      html += `<strong>Tensão:</strong> ${obj.nominal_voltage} V<br>`;
+    html += `<strong>Tensão:</strong> ${obj.nominal_voltage} V<br>`;
   }
 
   if (obj.capacity !== null && obj.capacity !== undefined) {
-      html += `<strong>Capacidade:</strong> ${obj.capacity} kW<br>`;
+    html += `<strong>Capacidade:</strong> ${obj.capacity} kW<br>`;
   }
 
   if (obj.current_load !== null && obj.current_load !== undefined) {
-      html += `<strong>Carga atual:</strong> ${obj.current_load} kW<br>`;
+    html += `<strong>Carga atual:</strong> ${obj.current_load} kW<br>`;
   }
-
-  // Removed Network Type display as requested
 
   if (Array.isArray(obj.devices) && obj.devices.length > 0) {
     html += `<br><strong>Dispositivos:</strong><br>`;
@@ -199,7 +195,7 @@ function formatTooltip(obj) {
       html += `• ${device.name}<br>`;
       html += `&nbsp;&nbsp;- Potência Média: ${device.avg_power} kW<br>`;
       html += `&nbsp;&nbsp;- Potência Atual: ${device.current_power} kW<br>`;
-    }); 
+    });
   }
   return html;
 }
