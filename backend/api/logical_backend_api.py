@@ -7,6 +7,7 @@ from core.graph_core import PowerGridGraph
 from core.models import Edge, Node, NodeType
 from logic.bplus_index import BPlusIndex
 from logic.logical_graph_service import LogicalGraphService
+from logic.loss_analysis import propagate_losses
 from logic.ui_tree_snapshot import build_full_ui_snapshot
 from physical.device_catalog import get_device_template
 from physical.device_model import DeviceType, IoTDevice
@@ -54,6 +55,9 @@ def api_get_tree_snapshot(
     # (autocorreção, load shedding por sobrecarga, etc.)
     service.check_system_health()
 
+    # Recalcula perdas energéticas antes de gerar o snapshot
+    propagate_losses(graph, index)
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
@@ -98,6 +102,8 @@ def api_add_node_with_routing(
         já está preparado para inclusão futura de mensagens.
     """
     service.add_node_with_routing(node=node, edges=edges)
+
+    propagate_losses(graph, index)
 
     return build_full_ui_snapshot(
         graph=graph,
@@ -194,6 +200,8 @@ def api_remove_node(
             sim_state.devices_by_id.pop(dev.id, None)
             sim_state.load_config_by_device_id.pop(dev.id, None)
 
+    propagate_losses(graph, index)
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
@@ -238,6 +246,8 @@ def api_change_parent_with_routing(
             }
     """
     service.change_parent_with_routing(child_id=node_id)
+
+    propagate_losses(graph, index)
 
     return build_full_ui_snapshot(
         graph=graph,
@@ -290,6 +300,8 @@ def api_force_change_parent(
         new_parent_id=forced_parent_id,
     )
 
+    propagate_losses(graph, index)
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
@@ -337,6 +349,8 @@ def api_set_node_capacity(
     """
     service.set_node_capacity(node_id=node_id, new_capacity=new_capacity)
 
+    propagate_losses(graph, index)
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
@@ -378,6 +392,8 @@ def api_force_overload(
             { "tree": [...], "logs": [] }
     """
     service.force_overload(node_id=node_id, overload_percentage=overload_percentage)
+
+    propagate_losses(graph, index)
 
     return build_full_ui_snapshot(
         graph=graph,
@@ -493,6 +509,8 @@ def api_set_device_average_load(
         node_devices=sim_state.devices_by_node,
     )
 
+    propagate_losses(graph, index)
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
@@ -561,6 +579,8 @@ def api_add_device(
         node_devices=sim_state.devices_by_node
     )
 
+    propagate_losses(graph, index)
+
     return build_full_ui_snapshot(
         graph=graph,
         index=index,
@@ -618,6 +638,8 @@ def api_remove_device(
         consumer_id=node_id,
         node_devices=sim_state.devices_by_node
     )
+
+    propagate_losses(graph, index)
 
     return build_full_ui_snapshot(
         graph=graph,
