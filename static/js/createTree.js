@@ -171,7 +171,12 @@ export function buildTree(root, g) {
 function formatTooltip(obj) {
   let html = `<strong>${obj.id}</strong><br>`;
   html += `<strong>Tipo:</strong> ${obj.node_type}<br>`;
-  html += `<strong>Id do Cluster:</strong> ${obj.cluster_id}<br>`;
+
+  if (obj.cluster_name) {
+    html += `<strong>Nome da Cidade:</strong> ${obj.cluster_name}<br>`;
+  } else if (obj.cluster_id !== null && obj.cluster_id !== undefined) {
+    html += `<strong>Id do Cluster:</strong> ${obj.cluster_id}<br>`;
+  }
 
   if (obj.status) {
     html += `<strong>Status:</strong> ${obj.status}<br>`;
