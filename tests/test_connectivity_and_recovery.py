@@ -18,8 +18,8 @@ def backend():
         num_generation_plants=1,
         num_transmission_substations=2,
         max_transmission_segment_length=1500.0,
-        max_mv_segment_length=800.0,
-        max_lv_segment_length=250.0
+        max_mv_segment_length=900.0,
+        max_lv_segment_length=600.0
     )
     return PowerGridBackend(cfg)
 
