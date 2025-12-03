@@ -190,7 +190,7 @@ function formatTooltip(obj) {
   }
 
   if (obj.energy_loss !== null && obj.energy_loss !== undefined) {
-    html += `<strong>Perda Energética:</strong> ${obj.energy_loss}%<br>`;
+    html += `<strong>Perca de energia:</strong> ${obj.energy_loss}%<br>`;
   }
 
   if (Array.isArray(obj.devices) && obj.devices.length > 0) {
