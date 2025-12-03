@@ -6,6 +6,7 @@ from core.graph_core import PowerGridGraph
 from core.models import Node, NodeType
 from logic.bplus_index import BPlusIndex
 from physical.device_model import IoTDevice
+from utils.name_generator import get_name_for_cluster
 
 
 def _compute_status(node: Node, unsupplied_ids: Set[str], failed_nodes: Set[str]) -> Optional[str]:
@@ -75,6 +76,10 @@ def _build_tree_entry(
 
     # Removed network_type entirely as requested
 
+    cluster_name = None
+    if node.cluster_id is not None:
+        cluster_name = get_name_for_cluster(node.cluster_id)
+
     return {
         "id": node.id,
         "parent_id": parent_id,
@@ -82,6 +87,7 @@ def _build_tree_entry(
         "position_x": _round_val(node.position_x),
         "position_y": _round_val(node.position_y),
         "cluster_id": node.cluster_id,
+        "cluster_name": cluster_name,
         "nominal_voltage": _round_val(node.nominal_voltage),
         "capacity": _round_val(node.capacity),
         "current_load": _round_val(node.current_load),
