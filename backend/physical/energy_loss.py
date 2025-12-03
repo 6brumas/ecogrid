@@ -116,7 +116,7 @@ def _classify_voltage_level(voltage: float) -> VoltageLevel:
     return "LV"
 
 
-def _edge_resistance(
+def get_segment_resistance(
     graph: PowerGridGraph,
     edge: Edge,
 ) -> Optional[float]:
@@ -230,7 +230,7 @@ def estimate_edge_loss(
         return 0.0
 
     voltage = _infer_edge_voltage(graph, edge)
-    resistance = _edge_resistance(graph, edge)
+    resistance = get_segment_resistance(graph, edge)
 
     if voltage is None or voltage <= 0.0 or resistance is None:
         # Falha em inferir parâmetros físicos; usa custo proporcional
